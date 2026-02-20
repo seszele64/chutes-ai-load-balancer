@@ -107,7 +107,7 @@ def create_router(
     model_list: list,
     custom_routing_strategy,
     debug: bool = False,
-) -> "Router":
+) -> "Router":  # type: ignore[type-arg]
     """
     Create and configure the LiteLLM Router.
 
@@ -119,6 +119,7 @@ def create_router(
     Returns:
         Configured Router instance
     """
+    from litellm.router import Router
     from litellm.router import Router
 
     verbose = debug
@@ -140,29 +141,34 @@ def create_router(
     return router
 
 
-def start_proxy_server(router, port: int = 4000, host: str = "0.0.0.0"):
+def start_proxy_server(
+    router, model_list: list, port: int = 4000, host: str = "0.0.0.0"
+):
     """
     Start the LiteLLM proxy server.
 
     Args:
         router: Configured Router instance
+        model_list: List of model configurations
         port: Port to listen on
         host: Host to bind to
     """
     import litellm
-    from litellm.proxy.proxy_server import app
+    from litellm.proxy import proxy_server as ps
 
-    # Set router for the proxy
-    litellm.router = router
+    # Set router and model_list for the proxy using the global variables
+    ps.llm_router = router
+    ps.llm_model_list = model_list
 
     logger.info(f"Starting LiteLLM proxy on {host}:{port}")
+    logger.info(f"Registered {len(model_list)} models with proxy")
     logger.info("Press Ctrl+C to stop the server")
 
     # Run the proxy server
     import uvicorn
 
     uvicorn.run(
-        app,
+        ps.app,
         host=host,
         port=port,
         log_level="info",
@@ -236,9 +242,16 @@ def main():
         debug=args.debug,
     )
 
+    # Set router reference on the custom routing strategy
+    # This must be done after router creation for the custom strategy to access model_list
+    custom_routing.set_router(router)
+    logger.info("Router reference set on custom routing strategy")
+
     # Start proxy server
     try:
-        start_proxy_server(router, port=args.port, host=args.host)
+        start_proxy_server(
+            router, model_list=model_list, port=args.port, host=args.host
+        )
     except KeyboardInterrupt:
         logger.info("Shutting down...")
     except Exception as e:
