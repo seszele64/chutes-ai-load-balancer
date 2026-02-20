@@ -32,17 +32,19 @@ Add this to your `~/.config/opencode/opencode.jsonc`:
     "name": "LiteLLM Chutes",
     "npm": "@ai-sdk/openai-compatible",
     "options": {
-      "baseURL": "http://localhost:4000/v1",
-      "apiKey": "os.environ/LITELLM_MASTER_KEY"
+      "baseURL": "http://localhost:4000/v1"
+      // Note: No apiKey field needed - OpenCode handles authentication automatically
     },
     "models": {
       "chutes-models": {
-        "name": "Chutes Load Balanced"
+        "name": "Chutes Load Balanced (Kimi→GLM→Qwen)"
       }
     }
   }
 }
 ```
+
+> **Note**: The `apiKey` field should be omitted because OpenCode handles authentication automatically when no apiKey is specified.
 
 ## How It Works
 
