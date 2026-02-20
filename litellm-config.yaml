@@ -5,9 +5,9 @@ model_list:
       model: openai/moonshotai/Kimi-K2.5-TEE
       api_base: https://llm.chutes.ai/v1
       api_key: os.environ/CHUTES_API_KEY
+      order: 1
     model_info:
       id: kimi-k2.5-tee
-      order: 1  # Highest priority
 
   # GLM-5 TEE - Second choice
   - model_name: chutes-models
@@ -15,9 +15,9 @@ model_list:
       model: openai/zai-org/GLM-5-TEE
       api_base: https://llm.chutes.ai/v1
       api_key: os.environ/CHUTES_API_KEY
+      order: 2
     model_info:
       id: glm-5-tee
-      order: 2
 
   # Qwen3.5 397B - Third choice
   - model_name: chutes-models
@@ -25,15 +25,18 @@ model_list:
       model: openai/Qwen/Qwen3.5-397B-A17B-TEE
       api_base: https://llm.chutes.ai/v1
       api_key: os.environ/CHUTES_API_KEY
+      order: 3
     model_info:
       id: qwen3.5-397b-tee
-      order: 3
 
 router_settings:
   routing_strategy: simple-shuffle  # Best performance
   enable_pre_call_checks: true  # Required for 'order' to work
   num_retries: 3
   timeout: 300
+  allowed_fails: 3
+  cooldown_time: 30
+  retry_after: 5
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
