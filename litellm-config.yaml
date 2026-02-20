@@ -1,13 +1,15 @@
 model_list:
   # Kimi K2.5 TEE - Primary choice
+  # Note: Replace chute_id with actual chute ID from Chutes dashboard/API
   - model_name: chutes-models
     litellm_params:
       model: openai/moonshotai/Kimi-K2.5-TEE
       api_base: https://llm.chutes.ai/v1
       api_key: os.environ/CHUTES_API_KEY
     model_info:
-      id: kimi-k2.5-tee
-      order: 1  # Highest priority
+      id: 2ff25e81-4586-5ec8-b892-3a6f342693d7
+      chute_id: chute_kimi_k2.5_tee  # Replace with actual chute ID
+      order: 1  # Highest priority (fallback)
 
   # GLM-5 TEE - Second choice
   - model_name: chutes-models
@@ -16,8 +18,9 @@ model_list:
       api_base: https://llm.chutes.ai/v1
       api_key: os.environ/CHUTES_API_KEY
     model_info:
-      id: glm-5-tee
-      order: 2
+      id: e51e818e-fa63-570d-9f68-49d7d1b4d12f
+      chute_id: chute_glm_5_tee  # Replace with actual chute ID
+      order: 2  # Fallback priority
 
   # Qwen3.5 397B - Third choice
   - model_name: chutes-models
@@ -26,14 +29,20 @@ model_list:
       api_base: https://llm.chutes.ai/v1
       api_key: os.environ/CHUTES_API_KEY
     model_info:
-      id: qwen3.5-397b-tee
-      order: 3
+      id: 51a4284a-a5a0-5e44-a9cc-6af5a2abfbcf
+      chute_id: chute_qwen3.5_397b_tee  # Replace with actual chute ID
+      order: 3  # Fallback priority
 
+# Router settings
+# Note: Custom routing strategy is set programmatically in start_litellm.py
 router_settings:
-  routing_strategy: simple-shuffle  # Best performance
-  enable_pre_call_checks: true  # Required for 'order' to work
+  routing_strategy: simple-shuffle  # Default fallback if custom strategy fails
+  enable_pre_call_checks: false  # Disable for custom routing (handled by strategy)
   num_retries: 3
   timeout: 300
+  allowed_fails: 5  # Number of failures before cooldown
+  cooldown_time: 30  # Cooldown period in seconds
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL  # Optional: for tracking usage
