@@ -21,7 +21,7 @@ PORT="${1:-${LITELLM_PORT:-4000}}"
 HOST="${LITELLM_HOST:-0.0.0.0}"
 PID_FILE="/tmp/litellm-proxy.pid"
 LOG_FILE="/tmp/litellm-proxy.log"
-CONFIG_PATH="${LITELLM_CONFIG_PATH:-./litellm-config.yaml}"
+CONFIG_PATH="${LITELLM_CONFIG_PATH:-../litellm-config.yaml}"
 
 # Colors for output
 RED='\033[0;31m'
@@ -128,14 +128,14 @@ case "${1:-}" in
         ;;
 esac
 
-# Check for .env file
-if [ -f ".env" ]; then
-    log_info "Loading environment from .env..."
+# Check for .env file in project root
+if [ -f "../.env" ]; then
+    log_info "Loading environment from ../.env..."
     set -a
-    source .env
+    source ../.env
     set +a
 else
-    log_warn ".env file not found. Using existing environment variables."
+    log_warn ".env file not found in project root. Using existing environment variables."
 fi
 
 # Validate required environment variables
@@ -170,7 +170,7 @@ log_info "Starting LiteLLM proxy on ${HOST}:${PORT}..."
 log_info "Log file: $LOG_FILE"
 
 # Start the proxy in the background
-python3 start_litellm.py --port "$PORT" --host "$HOST" --config "$CONFIG_PATH" > "$LOG_FILE" 2>&1 &
+python3 ../start_litellm.py --port "$PORT" --host "$HOST" --config "$CONFIG_PATH" > "$LOG_FILE" 2>&1 &
 PROXY_PID=$!
 
 # Save PID
