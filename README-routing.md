@@ -90,7 +90,10 @@ model_list:
 ### Starting the Proxy
 
 ```bash
-# Basic usage
+# Recommended: Uses the startup script (handles .env loading and validation)
+./scripts/run-proxy.sh
+
+# Alternative: Run directly from project root
 python start_litellm.py
 
 # With custom port
