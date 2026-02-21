@@ -288,3 +288,64 @@ class TestHealthEndpoint:
         # Assert - All should return same value, but only first call hits API
         assert util1 == util2 == util3 == 0.5
         assert call_count == 1  # Only first call hits API
+
+    def test_health_endpoint_empty_model_list(self):
+        """
+        Given: A routing strategy with an empty model list
+        When: Health check is called
+        Then: The system should handle empty model list gracefully without crashing
+        """
+        # Arrange - Create routing strategy with empty model list
+        cache = UtilizationCache(ttl=30)
+        mock_client = Mock()
+        mock_client.get_utilization = Mock(return_value=0.5)
+
+        routing = ChutesUtilizationRouting(api_client=mock_client, cache=cache)
+
+        # Mock router with empty model list
+        mock_router = Mock()
+        mock_router.model_list = []
+
+        # Act - Get utilization for empty model list
+        utilizations = routing._get_all_utilizations(mock_router.model_list)
+
+        # Assert - Should handle empty list gracefully
+        assert utilizations == {}
+        # Verify no crash occurred and system returns empty dict
+
+    def test_chat_completions_api_error_handling(self):
+        """
+        Given: The Chutes API returns an error response (5xx/4xx)
+        When: A chat completions request is made
+        Then: The system should handle the error gracefully without crashing
+        """
+        # Arrange - Create routing with API that returns errors
+        cache = UtilizationCache(ttl=30)
+        mock_client = Mock()
+
+        # Simulate API error - returns None for utilization (simulates error)
+        def mock_get_util_error(chute_id):
+            return None  # None indicates API error/unavailable
+
+        mock_client.get_utilization = mock_get_util_error
+        mock_client.get_bulk_utilization = Mock(
+            return_value={"error": "Internal server error", "status_code": 500}
+        )
+
+        routing = ChutesUtilizationRouting(api_client=mock_client, cache=cache)
+
+        mock_router = Mock()
+        mock_router.model_list = [
+            {"model_name": "provider/model-a", "model_info": {"id": "model-a"}},
+            {"model_name": "provider/model-b", "model_info": {"id": "model-b"}},
+        ]
+        routing.set_router(mock_router)
+
+        # Act - Get utilization when API returns errors
+        utilizations = routing._get_all_utilizations(mock_router.model_list)
+
+        # Assert - System should handle errors gracefully (use default values)
+        assert "model-a" in utilizations
+        assert "model-b" in utilizations
+        # Should use default value (0.5) when API returns error
+        assert all(util == 0.5 for util in utilizations.values())
