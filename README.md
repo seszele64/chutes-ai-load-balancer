@@ -17,8 +17,10 @@ A local proxy that load balances between chutes.ai models with automatic failove
 
 3. Start the proxy:
    ```bash
-   litellm --config litellm-config.yaml
+   ./scripts/run-proxy.sh
    ```
+
+   This script handles environment loading, validation, and logging automatically.
 
 4. The proxy will run at `http://localhost:4000`
 
