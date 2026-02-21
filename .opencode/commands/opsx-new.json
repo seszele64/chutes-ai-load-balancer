@@ -1,0 +1,7 @@
+{
+  "name": "opsx-new",
+  "description": "Start new change with interactive prompts",
+  "prompt": "Start a new OpenSpec change using interactive prompts. This will:\n1. Ask about the problem to solve\n2. Guide through proposal creation\n3. Set up the change in openspec/changes/\n\nFollow the interactive workflow to create a properly structured change.",
+  "category": "openspec",
+  "arguments": []
+}

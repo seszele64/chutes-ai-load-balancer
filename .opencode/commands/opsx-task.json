@@ -1,0 +1,13 @@
+{
+  "name": "opsx-task",
+  "description": "Generate implementation tasks",
+  "prompt": "Generate implementation tasks. Tasks should be:\n- Break down into actionable items\n- Each task should be independently testable\n- Include verification steps\n\nUse the /opsx:task command to create tasks.md in openspec/changes/<name>/tasks.md",
+  "category": "openspec",
+  "arguments": [
+    {
+      "name": "name",
+      "description": "Name of the change (kebab-case)",
+      "required": true
+    }
+  ]
+}

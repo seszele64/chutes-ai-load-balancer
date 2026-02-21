@@ -1,0 +1,13 @@
+{
+  "name": "opsx-continue",
+  "description": "Create next artifact based on dependencies",
+  "prompt": "Continue the OpenSpec workflow by creating the next artifact in the dependency chain:\n- If proposal exists -> create specs\n- If specs exist -> create design\n- If design exist -> create tasks\n\nChange to continue: {{change}}\n\nAutomatically detect the current state and create the appropriate next artifact.",
+  "category": "openspec",
+  "arguments": [
+    {
+      "name": "change",
+      "description": "Name of the change to continue",
+      "required": true
+    }
+  ]
+}
