@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "litellm-proxy"
+version = "0.1.0"
+description = "LiteLLM proxy with Chutes utilization routing"
+requires-python = ">=3.9"
+dependencies = [
+    "litellm>=1.0.0",
+    "requests>=2.28.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-mock>=3.10.0",
+    "responses>=0.23.0",
+    "httpx>=0.24.0",
+    "respx>=0.20.0",
+    "freezegun>=1.2.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = """
+    -v
+    --tb=short
+    --strict-markers
+    --disable-warnings
+"""
+markers = [
+    "unit: unit tests",
+    "integration: integration tests",
+    "e2e: end-to-end tests",
+    "slow: marks tests as slow",
+]
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["tests/*", "**/__pycache__/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]

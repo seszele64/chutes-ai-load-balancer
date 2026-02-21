@@ -10,6 +10,8 @@ import os
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from litellm_proxy.exceptions import ConfigurationError
+
 logger = logging.getLogger(__name__)
 
 
@@ -193,75 +195,41 @@ class ConfigLoader:
 
         Returns:
             List of model configurations
+
+        Raises:
+            ConfigurationError: If no models are configured
         """
         if not self.config_path:
-            return self._get_default_model_list()
+            raise ConfigurationError(
+                "No models configured. Please provide models via:\n"
+                "  - CLI: --models model-1,model-2\n"
+                "  - ENV: LITELLM_MODELS=model-1,model-2\n"
+                "  - YAML: --config config.yaml with models list"
+            )
 
         config_path = Path(self.config_path)
         if not config_path.exists():
-            logger.warning(f"Config file not found: {self.config_path}")
-            return self._get_default_model_list()
+            raise ConfigurationError(
+                f"Config file not found: {self.config_path}\n"
+                "Please provide models via:\n"
+                "  - CLI: --models model-1,model-2\n"
+                "  - ENV: LITELLM_MODELS=model-1,model-2"
+            )
 
         try:
             import yaml
 
             with open(config_path, "r") as f:
                 config = yaml.safe_load(f)
-            return config.get("model_list", [])
+            models = config.get("model_list", [])
+            if not models:
+                raise ConfigurationError(
+                    "No models configured in YAML file.\n"
+                    "Please add a 'model_list' key with your model configurations."
+                )
+            return models
 
         except ImportError:
-            logger.warning("PyYAML not installed, using default model list")
-            return self._get_default_model_list()
+            raise ConfigurationError("PyYAML not installed. Cannot parse config file.")
         except Exception as e:
-            logger.error(f"Error loading model list: {e}")
-            return self._get_default_model_list()
-
-    def _get_default_model_list(self) -> list:
-        """
-        Get default model list if config file is not available.
-
-        Returns:
-            Default list of model configurations
-        """
-        chutes_api_key = os.environ.get("CHUTES_API_KEY", "")
-        return [
-            {
-                "model_name": "chutes-models",
-                "litellm_params": {
-                    "model": "openai/moonshotai/Kimi-K2.5-TEE",
-                    "api_base": "https://llm.chutes.ai/v1",
-                    "api_key": chutes_api_key,
-                },
-                "model_info": {
-                    "id": "kimi-k2.5-tee",
-                    "chute_id": "chute_kimi_k2.5_tee",
-                    "order": 1,
-                },
-            },
-            {
-                "model_name": "chutes-models",
-                "litellm_params": {
-                    "model": "openai/zai-org/GLM-5-TEE",
-                    "api_base": "https://llm.chutes.ai/v1",
-                    "api_key": chutes_api_key,
-                },
-                "model_info": {
-                    "id": "glm-5-tee",
-                    "chute_id": "chute_glm_5_tee",
-                    "order": 2,
-                },
-            },
-            {
-                "model_name": "chutes-models",
-                "litellm_params": {
-                    "model": "openai/Qwen/Qwen3.5-397B-A17B-TEE",
-                    "api_base": "https://llm.chutes.ai/v1",
-                    "api_key": chutes_api_key,
-                },
-                "model_info": {
-                    "id": "qwen3.5-397b-tee",
-                    "chute_id": "chute_qwen3.5_397b_tee",
-                    "order": 3,
-                },
-            },
-        ]
+            raise ConfigurationError(f"Error loading model list: {e}")
