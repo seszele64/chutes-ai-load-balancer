@@ -140,3 +140,20 @@ class UtilizationCache:
         """
         with self._lock:
             return list(self._cache.keys())
+
+    def delete(self, key: str) -> bool:
+        """
+        Delete an item from the cache.
+
+        Args:
+            key: The cache key to delete
+
+        Returns:
+            True if item was deleted, False if key didn't exist
+        """
+        with self._lock:
+            if key in self._cache:
+                del self._cache[key]
+                logger.debug(f"Deleted cache entry for {key}")
+                return True
+            return False
