@@ -10,6 +10,14 @@ __pycache__/
 venv/
 .venv/
 
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Python package
+*.egg-info/
+
 # IDE
 .idea/
 .vscode/
