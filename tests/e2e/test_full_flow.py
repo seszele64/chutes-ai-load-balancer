@@ -15,6 +15,7 @@ E2E Test Coverage:
 """
 
 import pytest
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict
 from unittest.mock import Mock
@@ -25,6 +26,7 @@ from litellm_proxy.api.client import ChutesAPIClient
 
 
 @pytest.mark.e2e
+@pytest.mark.slow
 class TestFullRequestFlow:
     """E2E tests for complete request flows."""
 
@@ -391,8 +393,6 @@ class TestFullRequestFlow:
         mock_client = Mock(spec=ChutesAPIClient)
 
         # Use a thread-safe counter for API calls
-        import threading
-
         api_call_count = 0
         api_lock = threading.Lock()
 
