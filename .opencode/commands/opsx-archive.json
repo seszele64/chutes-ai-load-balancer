@@ -1,0 +1,13 @@
+{
+  "name": "opsx-archive",
+  "description": "Archive completed change",
+  "prompt": "Archive a completed OpenSpec change. This will:\n1. Move the change from openspec/changes/ to openspec/specs/<category>/history/\n2. Update spec.md to reflect final state\n3. Mark the change as completed\n\nChange to archive: {{name}}\n\nOnly archive changes that have been fully implemented and verified.",
+  "category": "openspec",
+  "arguments": [
+    {
+      "name": "name",
+      "description": "Name of the change to archive",
+      "required": true
+    }
+  ]
+}

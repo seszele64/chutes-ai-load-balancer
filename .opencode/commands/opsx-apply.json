@@ -1,0 +1,13 @@
+{
+  "name": "opsx-apply",
+  "description": "Apply a delta spec (ADDED/MODIFIED/REMOVED)",
+  "prompt": "Apply a delta spec to implement changes. Delta specs include:\n- ADDED: New features\n- MODIFIED: Changes to existing features\n- REMOVED: Feature removal\n\nUse /opsx:apply to read delta specs from openspec/changes/<name>/specs/ and apply them to the codebase.",
+  "category": "openspec",
+  "arguments": [
+    {
+      "name": "name",
+      "description": "Name of the change to apply",
+      "required": true
+    }
+  ]
+}

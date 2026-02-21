@@ -1,0 +1,7 @@
+{
+  "name": "opsx-review",
+  "description": "Review pending changes",
+  "prompt": "Review pending changes in openspec/changes/. This will:\n1. List all pending changes\n2. Show delta specs for each change\n3. Highlight any issues or missing artifacts\n\nUse /opsx:review to see all pending changes before applying.",
+  "category": "openspec",
+  "arguments": []
+}

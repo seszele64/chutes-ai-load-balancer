@@ -1,0 +1,13 @@
+{
+  "name": "opsx-explore",
+  "description": "Think through ideas and explore solutions",
+  "prompt": "Use the /opsx:explore command to think through ideas before committing to a change. This is a safe space to:\n- Explore multiple approaches\n- Identify potential issues\n- Consider trade-offs\n- Document reasoning\n\nNo files are created - this is for exploration only.\n\nTopic to explore: {{topic}}",
+  "category": "openspec",
+  "arguments": [
+    {
+      "name": "topic",
+      "description": "The topic or problem to explore",
+      "required": true
+    }
+  ]
+}

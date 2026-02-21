@@ -1,0 +1,18 @@
+{
+  "name": "opsx-ff",
+  "description": "Fast-forward: create all artifacts at once",
+  "prompt": "Fast-forward mode: Create all OpenSpec artifacts (proposal, specs, design, tasks) in a single pass. Use when:\n- The change is well-understood\n- You want to move quickly\n- All requirements are clear\n\nChange name: {{name}}\nDescription: {{description}}\n\nCreate all artifacts for this change.",
+  "category": "openspec",
+  "arguments": [
+    {
+      "name": "name",
+      "description": "Name of the change (kebab-case)",
+      "required": true
+    },
+    {
+      "name": "description",
+      "description": "Brief description of the change",
+      "required": true
+    }
+  ]
+}
