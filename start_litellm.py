@@ -120,7 +120,6 @@ def create_router(
         Configured Router instance
     """
     from litellm.router import Router
-    from litellm.router import Router
 
     verbose = debug
     debug_level = "DEBUG" if debug else "INFO"
