@@ -1,0 +1,126 @@
+# OpenSpec Configuration for chutes-load-balancer
+
+schema: "1.0"
+
+context:
+  tech_stack:
+    - Python 3.x
+    - LiteLLM
+    - Chutes AI API
+  project_type: load-balancer
+  framework: opencode
+
+rules:
+  artifacts:
+    proposal:
+      required_fields:
+        - problem
+        - solution
+        - alternatives
+        - impact
+    design:
+      required_fields:
+        - technical_spec
+        - api_contracts
+        - data_models
+        - edge_cases
+      dependencies:
+        - proposal
+    tasks:
+      required_fields:
+        - actionable_items
+        - verification_steps
+      dependencies:
+        - proposal
+        - design
+
+project:
+  name: chutes-load-balancer
+  description: |
+    Chutes Load Balancer with LiteLLM - A spec-driven development framework
+    for routing requests between chutes.ai models with automatic failover.
+  version: "1.0.0"
+
+# OpenSpec settings
+openspec:
+  # Default spec directory
+  specs_dir: openspec/specs
+  
+  # Changes directory for delta specs
+  changes_dir: openspec/changes
+  
+  # Artifact templates
+  artifacts:
+    proposal: proposal.md
+    design: design.md
+    tasks: tasks.md
+
+# System configuration
+system:
+  # LiteLLM proxy settings
+  litellm:
+    host: "0.0.0.0"
+    port: 4000
+    config_file: litellm-config.yaml
+    master_key_env: LITELLM_MASTER_KEY
+  
+  # Chutes API settings
+  chutes:
+    api_base: https://api.chutes.ai
+    llm_api_base: https://llm.chutes.ai/v1
+    api_key_env: CHUTES_API_KEY
+    cache_ttl: 30  # seconds
+
+  # Routing configuration
+  routing:
+    strategy: chutes-utilization  # Custom utilization-based routing
+    num_retries: 3
+    timeout: 300
+    allowed_fails: 5
+    cooldown_time: 30
+
+# Model priorities (fallback order)
+models:
+  primary:
+    name: moonshotai/Kimi-K2.5-TEE
+    chute_id: 2ff25e81-4586-5ec8-b892-3a6f342693d7
+    order: 1
+  secondary:
+    name: zai-org/GLM-5-TEE
+    chute_id: e51e818e-fa63-570d-9f68-49d7d1b4d12f
+    order: 2
+  tertiary:
+    name: Qwen/Qwen3.5-397B-A17B-TEE
+    chute_id: 51a4284a-a5a0-5e44-a9cc-6af5a2abfbcf
+    order: 3
+
+# OpenCode integration
+opencode:
+  enabled: true
+  agents_file: AGENTS.md
+  commands_dir: .opencode/commands
+  
+  # Slash commands available
+  commands:
+    - name: /opsx:explore
+      description: Think through ideas and explore solutions
+    - name: /opsx:new
+      description: Start new change with interactive prompts
+    - name: /opsx:ff
+      description: Fast-forward: create all artifacts at once
+    - name: /opsx:continue
+      description: Create next artifact based on dependencies
+    - name: /opsx:propose
+      description: Create a new spec proposal
+    - name: /opsx:design
+      description: Create detailed design document
+    - name: /opsx:task
+      description: Generate implementation tasks
+    - name: /opsx:apply
+      description: Apply a delta spec (ADDED/MODIFIED/REMOVED)
+    - name: /opsx:sync
+      description: Sync delta specs to master specs
+    - name: /opsx:archive
+      description: Archive completed change
+    - name: /opsx:review
+      description: Review pending changes

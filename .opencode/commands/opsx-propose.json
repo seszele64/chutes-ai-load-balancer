@@ -1,0 +1,18 @@
+{
+  "name": "opsx-propose",
+  "description": "Create a new spec proposal",
+  "prompt": "Create a new OpenSpec proposal. A proposal explains:\n- What problem you're solving\n- Proposed solution\n- Alternative approaches considered\n- Impact assessment\n\nUse the /opsx:propose command to create a proposal in openspec/changes/<name>/proposal.md",
+  "category": "openspec",
+  "arguments": [
+    {
+      "name": "name",
+      "description": "Name of the change (kebab-case)",
+      "required": true
+    },
+    {
+      "name": "category",
+      "description": "Category for the spec (e.g., routing, proxy, etc.)",
+      "required": true
+    }
+  ]
+}

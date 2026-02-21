@@ -1,0 +1,7 @@
+{
+  "name": "opsx-sync",
+  "description": "Sync delta specs to master specs",
+  "prompt": "Sync delta specifications from openspec/changes/ to the master spec files. This will:\n1. Read all pending delta specs (ADDED/MODIFIED/REMOVED)\n2. Apply changes to the relevant spec.md files\n3. Update the master specification\n\nReview changes before syncing.",
+  "category": "openspec",
+  "arguments": []
+}

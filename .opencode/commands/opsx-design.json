@@ -1,0 +1,13 @@
+{
+  "name": "opsx-design",
+  "description": "Create detailed design document",
+  "prompt": "Create a detailed design document. A design includes:\n- Technical specification\n- API contracts (if applicable)\n- Data models\n- Sequence diagrams\n- Edge cases handling\n\nUse the /opsx:design command to create a design.md in openspec/changes/<name>/design.md",
+  "category": "openspec",
+  "arguments": [
+    {
+      "name": "name",
+      "description": "Name of the change (kebab-case)",
+      "required": true
+    }
+  ]
+}
