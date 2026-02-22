@@ -28,6 +28,33 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def load_config(config_path: str) -> tuple:
+    """
+    Load configuration from YAML file.
+
+    Args:
+        config_path: Path to litellm-config.yaml
+
+    Returns:
+        Tuple of (model_list, litellm_settings, general_settings)
+    """
+    try:
+        import yaml
+
+        with open(config_path, "r") as f:
+            config = yaml.safe_load(f)
+        model_list = config.get("model_list", [])
+        litellm_settings = config.get("litellm_settings", {})
+        general_settings = config.get("general_settings", {})
+        return model_list, litellm_settings, general_settings
+    except ImportError:
+        logger.warning("PyYAML not installed, using default config")
+        return get_default_model_list(), {}, {}
+    except FileNotFoundError:
+        logger.warning(f"Config file not found: {config_path}, using defaults")
+        return get_default_model_list(), {}, {}
+
+
 def load_model_list_from_config(config_path: str) -> list:
     """
     Load model list from YAML configuration file.
@@ -38,18 +65,10 @@ def load_model_list_from_config(config_path: str) -> list:
     Returns:
         List of model configurations
     """
-    try:
-        import yaml
-
-        with open(config_path, "r") as f:
-            config = yaml.safe_load(f)
-        return config.get("model_list", [])
-    except ImportError:
-        logger.warning("PyYAML not installed, using default model list")
+    model_list, _, _ = load_config(config_path)
+    if not model_list:
         return get_default_model_list()
-    except FileNotFoundError:
-        logger.warning(f"Config file not found: {config_path}, using defaults")
-        return get_default_model_list()
+    return model_list
 
 
 def get_default_model_list() -> list:
@@ -140,8 +159,46 @@ def create_router(
     return router
 
 
+def apply_litellm_settings(litellm_settings: dict):
+    """
+    Apply litellm_settings to the LiteLLM proxy.
+
+    Args:
+        litellm_settings: Dictionary of litellm settings from config
+    """
+    import litellm
+    from litellm.proxy import proxy_server as ps
+    from litellm.proxy._types import LiteLLMRoutes
+
+    # Apply public routes for unauthenticated access
+    if "public_routes" in litellm_settings:
+        public_routes = litellm_settings["public_routes"]
+        litellm.public_routes = public_routes
+        ps.public_routes = public_routes
+
+        # Add to LiteLLMRoutes.public_routes set for auth middleware
+        for route in public_routes:
+            LiteLLMRoutes.public_routes.value.add(route)
+
+        logger.info(f"Set public routes: {public_routes}")
+
+    # Allow requests without API key for public routes
+    if litellm_settings.get("allow_requests_on_missing_api_key", False):
+        litellm.allow_requests_on_missing_api_key = True
+        logger.info("Enabled allow_requests_on_missing_api_key")
+
+    # UI access settings
+    if litellm_settings.get("ui_access", False):
+        litellm.ui_access = True
+        logger.info("Enabled UI access")
+
+
 def start_proxy_server(
-    router, model_list: list, port: int = 4000, host: str = "0.0.0.0"
+    router,
+    model_list: list,
+    port: int = 4000,
+    host: str = "0.0.0.0",
+    litellm_settings: dict = None,  # type: ignore[assignment]
 ):
     """
     Start the LiteLLM proxy server.
@@ -151,9 +208,14 @@ def start_proxy_server(
         model_list: List of model configurations
         port: Port to listen on
         host: Host to bind to
+        litellm_settings: LiteLLM settings from config
     """
     import litellm
     from litellm.proxy import proxy_server as ps
+
+    # Apply litellm_settings if provided
+    if litellm_settings:
+        apply_litellm_settings(litellm_settings)
 
     # Set router and model_list for the proxy using the global variables
     ps.llm_router = router
@@ -216,17 +278,20 @@ def main():
     if not master_key:
         logger.warning("LITELLM_MASTER_KEY not set, proxy will not be secured")
 
-    # Load model list from config
+    # Load config from YAML
     config_path = Path(args.config)
+    litellm_settings = {}
     if config_path.exists():
-        model_list = load_model_list_from_config(str(config_path))
+        model_list, litellm_settings, _ = load_config(str(config_path))
         logger.info(f"Loaded {len(model_list)} models from config")
+        if litellm_settings:
+            logger.info(f"Loaded litellm_settings: {list(litellm_settings.keys())}")
     else:
         logger.warning(f"Config file not found: {config_path}, using defaults")
         model_list = get_default_model_list()
 
     # Import and create custom routing strategy
-    from chutes_routing import ChutesUtilizationRouting
+    from litellm_proxy.routing.strategy import ChutesUtilizationRouting
 
     custom_routing = ChutesUtilizationRouting(
         chutes_api_key=chutes_api_key,
@@ -249,7 +314,11 @@ def main():
     # Start proxy server
     try:
         start_proxy_server(
-            router, model_list=model_list, port=args.port, host=args.host
+            router,
+            model_list=model_list,
+            port=args.port,
+            host=args.host,
+            litellm_settings=litellm_settings,
         )
     except KeyboardInterrupt:
         logger.info("Shutting down...")

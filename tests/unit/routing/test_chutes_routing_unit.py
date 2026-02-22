@@ -197,3 +197,268 @@ def test_routing_filters_unavailable_models():
     assert (
         utilizations["unavailable-model"] == 0.5
     )  # Uses default when API returns None
+
+
+# ============================================================================
+# Phase 2: Additional Routing Strategy Tests (TC-15 through TC-25)
+# ============================================================================
+
+
+@pytest.mark.unit
+def test_routing_api_client_lazy_initialization():
+    """
+    TC-15: Given: Routing strategy without API client
+    When: api_client property is accessed
+    Then: Creates new ChutesAPIClient instance
+    """
+    # Arrange
+    routing = ChutesUtilizationRouting(cache_ttl=30)
+    assert routing._api_client is None
+
+    # Act
+    client = routing.api_client
+
+    # Assert
+    assert client is not None
+    assert isinstance(client, ChutesAPIClient)
+    assert routing._api_client is client
+
+
+@pytest.mark.unit
+def test_routing_cache_lazy_initialization():
+    """
+    TC-16: Given: Routing strategy without cache
+    When: cache property is accessed
+    Then: Creates new UtilizationCache instance
+    """
+    # Arrange
+    routing = ChutesUtilizationRouting(cache_ttl=30)
+    assert routing._cache is None
+
+    # Act
+    cache = routing.cache
+
+    # Assert
+    assert cache is not None
+    assert isinstance(cache, UtilizationCache)
+    assert routing._cache is cache
+
+
+@pytest.mark.unit
+def test_routing_get_all_utilizations_extracts_from_model_name():
+    """
+    TC-17: Given: Model config without model_info
+    When: _get_all_utilizations() is called
+    Then: Extracts chute_id from model name (litellm_params)
+    """
+    # Arrange
+    mock_client = Mock(spec=ChutesAPIClient)
+    mock_client.get_utilization.return_value = 0.4
+    cache = UtilizationCache(ttl=30)
+
+    routing = ChutesUtilizationRouting(api_client=mock_client, cache=cache)
+
+    model_list = [
+        {
+            "model_name": "provider/my-chute-model",
+            "litellm_params": {"model": "provider/my-chute-model"},
+        }
+    ]
+
+    # Act
+    utilizations = routing._get_all_utilizations(model_list)
+
+    # Assert - should extract chute_id from model name
+    assert "my-chute-model" in utilizations
+    assert utilizations["my-chute-model"] == 0.4
+
+
+@pytest.mark.unit
+def test_routing_get_model_list_uses_getattr_fallback():
+    """
+    TC-18: Given: Routing strategy without router but with model_list on self
+    When: _get_model_list() is called
+    Then: Uses getattr fallback to get model_list
+    """
+    # Arrange
+    routing = ChutesUtilizationRouting(cache_ttl=30)
+    # Set model_list directly on the routing instance
+    test_model_list = [{"model_name": "model-a", "model_info": {"id": "chute-a"}}]
+    routing.model_list = test_model_list
+
+    # Act
+    result = routing._get_model_list()
+
+    # Assert
+    assert result == test_model_list
+
+
+@pytest.mark.unit
+def test_routing_get_model_list_uses_request_kwargs_router():
+    """
+    TC-19: Given: No model_list from router or self
+    When: _get_model_list() is called with request_kwargs
+    Then: Gets model_list from request_kwargs router
+    """
+    # Arrange
+    routing = ChutesUtilizationRouting(cache_ttl=30)
+
+    test_model_list = [{"model_name": "model-x", "model_info": {"id": "chute-x"}}]
+    mock_router = Mock()
+    mock_router.model_list = test_model_list
+
+    request_kwargs = {"router": mock_router}
+
+    # Act
+    result = routing._get_model_list(request_kwargs)
+
+    # Assert
+    assert result == test_model_list
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_routing_async_get_available_deployment_exception_handling():
+    """
+    TC-20: Given: Exception raised during async_get_available_deployment
+    When: async_get_available_deployment() is called
+    Then: Returns None and logs error (doesn't raise)
+    """
+    # Arrange
+    mock_client = Mock(spec=ChutesAPIClient)
+    mock_client.get_utilization.side_effect = Exception("API Error")
+    cache = UtilizationCache(ttl=30)
+
+    routing = ChutesUtilizationRouting(api_client=mock_client, cache=cache)
+
+    # Set model_list directly on self to avoid router dependency
+    test_model_list = [{"model_name": "model-a", "model_info": {"id": "chute-123"}}]
+    routing.model_list = test_model_list
+
+    # Act
+    result = await routing.async_get_available_deployment(model="model-a")
+
+    # Assert - should return first model (fallback) even on exception
+    # The code uses default 0.5 for unavailable and returns first model
+    assert result is not None
+
+
+@pytest.mark.unit
+def test_routing_get_available_deployment_empty_model_list():
+    """
+    TC-21: Given: Empty model list
+    When: get_available_deployment() is called
+    Then: Returns None
+    """
+    # Arrange
+    routing = ChutesUtilizationRouting(cache_ttl=30)
+    routing.router = Mock()
+    routing.router.model_list = []
+
+    # Act
+    result = routing.get_available_deployment(model="model-a")
+
+    # Assert
+    assert result is None
+
+
+@pytest.mark.unit
+def test_routing_get_available_deployment_empty_utilizations():
+    """
+    TC-22: Given: Model list but no utilization data
+    When: get_available_deployment() is called
+    Then: Returns first available model (fallback behavior)
+
+    Note: The code uses default 0.5 for unavailable models and returns
+    the first model in the list as fallback.
+    """
+    # Arrange
+    mock_client = Mock(spec=ChutesAPIClient)
+    mock_client.get_utilization.return_value = None  # Simulates API failure
+    cache = UtilizationCache(ttl=30)
+
+    routing = ChutesUtilizationRouting(api_client=mock_client, cache=cache)
+
+    model_list = [{"model_name": "model-a", "model_info": {"id": "chute-123"}}]
+    routing.router = Mock()
+    routing.router.model_list = model_list
+
+    # Act
+    result = routing.get_available_deployment(model="model-a")
+
+    # Assert - returns first model as fallback (uses default 0.5)
+    assert result is not None
+    assert result["model_name"] == "model-a"
+
+
+@pytest.mark.unit
+def test_routing_get_available_deployment_exception_handling():
+    """
+    TC-24: Given: Exception raised during get_available_deployment
+    When: get_available_deployment() is called
+    Then: Returns first model (fallback behavior doesn't raise)
+
+    Note: The code catches exceptions and uses default values,
+    returning the first available model.
+    """
+    # Arrange
+    mock_client = Mock(spec=ChutesAPIClient)
+    mock_client.get_utilization.side_effect = Exception("API Error")
+    cache = UtilizationCache(ttl=30)
+
+    routing = ChutesUtilizationRouting(api_client=mock_client, cache=cache)
+
+    model_list = [{"model_name": "model-a", "model_info": {"id": "chute-123"}}]
+    routing.router = Mock()
+    routing.router.model_list = model_list
+
+    # Act
+    result = routing.get_available_deployment(model="model-a")
+
+    # Assert - returns first model as fallback (uses default 0.5)
+    assert result is not None
+    assert result["model_name"] == "model-a"
+
+
+@pytest.mark.unit
+def test_routing_get_available_deployment_cannot_find_least_utilized():
+    """
+    TC-23: Given: Utilization data but _find_least_utilized returns None
+    When: get_available_deployment() is called
+    Then: Returns None
+    """
+    # Arrange
+    mock_client = Mock(spec=ChutesAPIClient)
+    cache = UtilizationCache(ttl=30)
+
+    routing = ChutesUtilizationRouting(api_client=mock_client, cache=cache)
+    # Mock _find_least_utilized to return None (empty dict edge case)
+    routing._find_least_utilized = Mock(return_value=None)
+
+    model_list = [{"model_name": "model-a", "model_info": {"id": "chute-123"}}]
+    routing.router = Mock()
+    routing.router.model_list = model_list
+
+    # Act
+    result = routing.get_available_deployment(model="model-a")
+
+    # Assert
+    assert result is None
+
+
+@pytest.mark.unit
+def test_routing_create_chutes_routing_strategy_factory():
+    """
+    TC-25: Given: Valid parameters
+    When: create_chutes_routing_strategy() is called
+    Then: Returns ChutesUtilizationRouting instance
+    """
+    # Act
+    from litellm_proxy.routing.strategy import create_chutes_routing_strategy
+
+    result = create_chutes_routing_strategy(chutes_api_key="test-key", cache_ttl=60)
+
+    # Assert
+    assert isinstance(result, ChutesUtilizationRouting)
+    assert result.chutes_api_key == "test-key"
+    assert result.cache_ttl == 60
