@@ -44,13 +44,22 @@ class ChutesUtilizationRouting(CustomRoutingStrategyBase):
     3. Routes requests to the deployment with the lowest utilization
     4. Falls back to default behavior if API is unavailable
     """
-
     def __init__(
         self,
         chutes_api_key: Optional[str] = None,
         cache_ttl: int = 30,
         chutes_api_base: str = "https://api.chutes.ai",
+        priority_weight: float = 0.3,          # NEW
+        utilization_threshold: float = 0.1,    # NEW
     ):
+        # Allow environment override
+        self.priority_weight = float(
+            os.getenv("CHUTES_PRIORITY_WEIGHT", priority_weight)
+        )
+
+        self.utilization_threshold = float(
+            os.getenv("CHUTES_UTIL_THRESHOLD", utilization_threshold)
+        )
         """
         Initialize the Chutes utilization routing strategy.
 
@@ -71,6 +80,49 @@ class ChutesUtilizationRouting(CustomRoutingStrategyBase):
             f"ChutesUtilizationRouting initialized with cache_ttl={cache_ttl}s, "
             f"api_base={chutes_api_base}"
         )
+    def _get_model_priority(self, model_config: Dict[str, Any]) -> int: #New
+        """
+        Extract priority order from model_info.
+        Lower order = higher priority (1 = highest).
+        """
+        model_info = model_config.get("model_info", {})
+        return model_info.get("order", 999)  # default = lowest priority
+    
+    def _should_apply_priority(self, utilizations: Dict[str, float]) -> bool: #NEW
+        """
+        Apply priority only if utilization difference between top two
+        is within threshold.
+        """
+        if len(utilizations) < 2:
+            return False
+
+        sorted_utils = sorted(utilizations.values())
+        return (sorted_utils[1] - sorted_utils[0]) <= self.utilization_threshold
+    
+    def _calculate_weighted_score(
+        self,
+        utilization: float,
+        priority_order: int,
+        max_priority: int = 3,
+    ) -> float:
+        """
+        Lower score = better.
+        """
+        # Normalize priority:
+        # order 1 -> 1.0 (best)
+        # order 3 -> 0.0 (worst)
+        if max_priority <= 1:
+            priority_score = 1.0
+        else:
+            priority_score = 1.0 - ((priority_order - 1) / (max_priority - 1))
+
+        # Combine utilization + priority
+        score = (
+            (utilization * (1 - self.priority_weight))
+            + ((1 - priority_score) * self.priority_weight)
+        )
+
+        return score
 
     def set_router(self, router) -> None:
         """
