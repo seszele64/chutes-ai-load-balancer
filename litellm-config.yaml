@@ -46,3 +46,17 @@ router_settings:
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
   database_url: os.environ/DATABASE_URL  # Optional: for tracking usage
+
+# LiteLLM proxy settings (runtime configuration)
+litellm_settings:
+  # Allow unauthenticated access to health/monitoring endpoints
+  public_routes:
+    - "/health"
+    - "/health/liveness"
+    - "/health/readiness"
+    - "/metrics"
+    - "/"
+    - "/v1/models"  # List models endpoint
+  # Disable API key requirement for public routes
+  allow_requests_on_missing_api_key: true
+  ui_access: true  # Allow UI access without auth

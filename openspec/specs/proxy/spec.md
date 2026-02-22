@@ -159,7 +159,7 @@ When the Chutes API cannot be reached:
 #### Cache Miss Behavior
 - First request after startup: Fetch utilization from API
 - During API outage: Use cached data or defaults
-- Cache TTL: 60 seconds (configurable)
+- Cache TTL: 30 seconds (configurable)
 
 #### Timeout Scenarios
 - API request timeout: 10 seconds
@@ -174,11 +174,22 @@ When the Chutes API cannot be reached:
 - Custom routing strategy logs utilization decisions
 - Configurable log levels: INFO (default), DEBUG
 
-#### Health Check
+#### Health Check Endpoints
+
+LiteLLM provides built-in health endpoints:
+
+| Endpoint | Purpose | Auth Required |
+|----------|---------|---------------|
+| `/health` | Comprehensive model health - makes actual API calls | Yes (Bearer token) |
+| `/health/liveliness` | Basic alive check - returns "I'm alive!" | No |
+| `/health/readiness` | Ready to accept traffic - includes DB/cache status | No |
 
 ```bash
-# Check proxy health
-curl http://localhost:4000/health
+# Check proxy health (requires auth)
+curl -H "Authorization: Bearer $LITELLM_MASTER_KEY" http://localhost:4000/health
+
+# Simple liveliness check (no auth)
+curl http://localhost:4000/health/liveliness
 ```
 
 ## Future Enhancements

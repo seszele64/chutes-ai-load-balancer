@@ -1,36 +1,24 @@
 """
-Custom Routing Strategy for LiteLLM using Chutes Utilization API.
+Chutes Utilization Routing Strategy for LiteLLM.
 
-This module implements a custom routing strategy that routes requests to the
-least utilized Chutes deployment based on real-time utilization data from the
-Chutes API.
+This module provides the routing strategy that routes requests to the
+least utilized Chutes deployment based on real-time utilization data.
 """
 
-import os
-import time
 import logging
-from typing import Optional, Union, List, Dict, Any, Tuple
-from dataclasses import dataclass
-import asyncio
-
-import requests
+import os
+from typing import Optional, Union, List, Dict, Any
 
 from litellm import CustomRoutingStrategyBase
 
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+from litellm_proxy.api.client import ChutesAPIClient
+from litellm_proxy.cache.store import UtilizationCache
+from litellm_proxy.exceptions import (
+    ChutesRoutingError,
+    EmptyModelListError,
 )
+
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class CacheEntry:
-    """Represents a cached utilization value with timestamp."""
-
-    utilization: float
-    timestamp: float
 
 
 class ChutesUtilizationRouting(CustomRoutingStrategyBase):
@@ -43,6 +31,9 @@ class ChutesUtilizationRouting(CustomRoutingStrategyBase):
     2. Caches the utilization data with configurable TTL
     3. Routes requests to the deployment with the lowest utilization
     4. Falls back to default behavior if API is unavailable
+
+    The strategy uses dependency injection for the API client and cache,
+    making it easy to test and swap implementations.
     """
 
     def __init__(
@@ -50,6 +41,8 @@ class ChutesUtilizationRouting(CustomRoutingStrategyBase):
         chutes_api_key: Optional[str] = None,
         cache_ttl: int = 30,
         chutes_api_base: str = "https://api.chutes.ai",
+        api_client: Optional[ChutesAPIClient] = None,
+        cache: Optional[UtilizationCache] = None,
     ):
         """
         Initialize the Chutes utilization routing strategy.
@@ -58,19 +51,40 @@ class ChutesUtilizationRouting(CustomRoutingStrategyBase):
             chutes_api_key: API key for Chutes API. Falls back to CHUTES_API_KEY env var.
             cache_ttl: Time-to-live for cache entries in seconds (default: 30)
             chutes_api_base: Base URL for Chutes API (default: https://api.chutes.ai)
+            api_client: Optional ChutesAPIClient instance (for dependency injection)
+            cache: Optional UtilizationCache instance (for dependency injection)
         """
         self.chutes_api_key = chutes_api_key or os.environ.get("CHUTES_API_KEY")
         self.cache_ttl = cache_ttl
         self.chutes_api_base = chutes_api_base
         self.router = None  # Reference to the Router instance, set via set_router()
 
-        # Cache: {chute_id: CacheEntry}
-        self.utilization_cache: Dict[str, CacheEntry] = {}
+        # Use injected dependencies or create default instances
+        self._api_client = api_client
+        self._cache = cache
 
         logger.info(
             f"ChutesUtilizationRouting initialized with cache_ttl={cache_ttl}s, "
             f"api_base={chutes_api_base}"
         )
+
+    @property
+    def api_client(self) -> ChutesAPIClient:
+        """Get or create the API client."""
+        if self._api_client is None:
+            self._api_client = ChutesAPIClient(
+                api_key=self.chutes_api_key,
+                base_url=self.chutes_api_base,
+                timeout=5,
+            )
+        return self._api_client
+
+    @property
+    def cache(self) -> UtilizationCache:
+        """Get or create the utilization cache."""
+        if self._cache is None:
+            self._cache = UtilizationCache(ttl=self.cache_ttl)
+        return self._cache
 
     def set_router(self, router) -> None:
         """
@@ -85,45 +99,6 @@ class ChutesUtilizationRouting(CustomRoutingStrategyBase):
         self.router = router
         logger.info("Router reference set on ChutesUtilizationRouting")
 
-    def _get_cached_utilization(self, chute_id: str) -> Optional[float]:
-        """
-        Get cached utilization value if still valid.
-
-        Args:
-            chute_id: The Chutes deployment ID
-
-        Returns:
-            Cached utilization value or None if expired/not cached
-        """
-        if chute_id not in self.utilization_cache:
-            return None
-
-        entry = self.utilization_cache[chute_id]
-        age = time.time() - entry.timestamp
-
-        if age > self.cache_ttl:
-            logger.debug(f"Cache expired for {chute_id}, age={age:.1f}s")
-            del self.utilization_cache[chute_id]
-            return None
-
-        logger.debug(
-            f"Cache hit for {chute_id}, age={age:.1f}s, util={entry.utilization}"
-        )
-        return entry.utilization
-
-    def _set_cached_utilization(self, chute_id: str, utilization: float) -> None:
-        """
-        Store utilization value in cache.
-
-        Args:
-            chute_id: The Chutes deployment ID
-            utilization: The utilization value (0.0 to 1.0)
-        """
-        self.utilization_cache[chute_id] = CacheEntry(
-            utilization=utilization, timestamp=time.time()
-        )
-        logger.debug(f"Cached utilization for {chute_id}: {utilization}")
-
     def _get_utilization(self, chute_id: str) -> Optional[float]:
         """
         Fetch utilization from Chutes API or return cached value.
@@ -135,150 +110,25 @@ class ChutesUtilizationRouting(CustomRoutingStrategyBase):
             Utilization value (0.0 = idle, 1.0 = fully utilized), or None if unavailable
         """
         # Check cache first
-        cached = self._get_cached_utilization(chute_id)
+        cached = self.cache.get(chute_id)
         if cached is not None:
             return cached
 
         # Fetch from API if not cached
-        if not self.chutes_api_key:
-            logger.warning(f"No Chutes API key available for chute {chute_id}")
-            return None
-
         try:
-            url = f"{self.chutes_api_base}/chutes/utilization"
-            headers = {
-                "X-API-Key": self.chutes_api_key,
-                "Content-Type": "application/json",
-            }
-
-            logger.debug(f"Fetching utilization for {chute_id} from {url}")
-            response = requests.get(
-                url,
-                headers=headers,
-                timeout=5,  # 5 second timeout
-            )
-            response.raise_for_status()
-
-            data = response.json()
-
-            # Parse utilization from response
-            # The API returns utilization data - adjust based on actual API response format
-            utilization = self._parse_utilization_response(data, chute_id)
+            utilization = self.api_client.get_utilization(chute_id)
 
             if utilization is not None:
-                self._set_cached_utilization(chute_id, utilization)
-                logger.info(f"Fetched utilization for {chute_id}: {utilization}")
+                self.cache.set(chute_id, utilization)
+                logger.info(
+                    f"Fetched and cached utilization for {chute_id}: {utilization}"
+                )
 
             return utilization
 
-        except requests.exceptions.Timeout:
-            logger.error(f"Timeout fetching utilization for {chute_id}")
-            return None
-        except requests.exceptions.RequestException as e:
+        except Exception as e:
             logger.error(f"Error fetching utilization for {chute_id}: {e}")
             return None
-        except (KeyError, ValueError) as e:
-            logger.error(f"Error parsing utilization response for {chute_id}: {e}")
-            return None
-
-    def _parse_utilization_response(
-        self, data: Dict[str, Any], chute_id: str
-    ) -> Optional[float]:
-        """
-        Parse utilization from API response.
-
-        The API returns a list of chute utilization objects:
-        [
-            {
-                "chute_id": "uuid...",
-                "name": "model/name",
-                "timestamp": "...",
-                "utilization_current": 0.5,
-                "utilization_5m": 0.4,
-                ...
-            },
-            ...
-        ]
-
-        Args:
-            data: API response data (list or dict)
-            chute_id: The chute ID being queried
-
-        Returns:
-            Utilization value (0.0 to 1.0) or None if not found
-        """
-        # Handle list response format (actual Chutes API format)
-        if isinstance(data, list):
-            # Try to find matching chute by chute_id first
-            for item in data:
-                if item.get("chute_id") == chute_id:
-                    # Use current utilization (most real-time)
-                    util = item.get("utilization_current")
-                    if util is not None:
-                        return float(util)
-                    # Fallback to 5m average
-                    util = item.get("utilization_5m")
-                    if util is not None:
-                        return float(util)
-                    # Fallback to 15m average
-                    util = item.get("utilization_15m")
-                    if util is not None:
-                        return float(util)
-
-            # If not found by chute_id, try to match by name/model
-            # Extract model name from the chute_id if it's a custom ID
-            for item in data:
-                name = item.get("name", "")
-                # Check if the chute_id matches any part of the name
-                # e.g., "chute_kimi_k2.5_tee" should match "moonshotai/Kimi-K2.5-TEE"
-                chute_id_normalized = (
-                    chute_id.replace("chute_", "").replace("_", "-").lower()
-                )
-                name_normalized = name.replace("/", " ").replace("-", " ").lower()
-                if (
-                    chute_id_normalized in name_normalized
-                    or name_normalized in chute_id_normalized
-                ):
-                    util = item.get("utilization_current")
-                    if util is not None:
-                        return float(util)
-
-            logger.warning(f"Could not find chute {chute_id} in utilization response")
-            return None
-
-        # Handle dict response format (legacy/alternative format)
-        if isinstance(data, dict):
-            # Try common field names
-            for field in ["utilization", "util", "usage", "load", "capacity"]:
-                if field in data:
-                    value = data[field]
-                    if isinstance(value, (int, float)):
-                        return float(value)
-
-            # Format 2: Per-chute data
-            if "chutes" in data and isinstance(data["chutes"], dict):
-                chute_data = data["chutes"].get(chute_id, {})
-                for field in ["utilization", "util", "usage", "load"]:
-                    if field in chute_data:
-                        return float(chute_data[field])
-
-                # Try getting from the first available chute
-                if not chute_data:
-                    for cid, cdata in data["chutes"].items():
-                        for field in ["utilization", "util", "usage", "load"]:
-                            if field in cdata:
-                                return float(cdata[field])
-
-            # Format 3: Array of chute data
-            if isinstance(data.get("data"), list):
-                for item in data["data"]:
-                    if item.get("chute_id") == chute_id or item.get("id") == chute_id:
-                        for field in ["utilization", "util", "usage", "load"]:
-                            if field in item:
-                                return float(item[field])
-
-        logger.warning(f"Could not parse utilization from response: {data}")
-        return None
 
     def _get_all_utilizations(
         self, model_list: List[Dict[str, Any]]
@@ -292,7 +142,7 @@ class ChutesUtilizationRouting(CustomRoutingStrategyBase):
         Returns:
             Dictionary mapping chute_id to utilization value
         """
-        utilizations = {}
+        utilizations: Dict[str, float] = {}
 
         for model_config in model_list:
             # Get chute_id from model_info
@@ -338,7 +188,44 @@ class ChutesUtilizationRouting(CustomRoutingStrategyBase):
         # Find key with minimum value
         return min(utilizations.items(), key=lambda x: x[1])[0]
 
-    # Type ignore comments needed because base class lacks proper type hints
+    def _get_model_list(
+        self, request_kwargs: Optional[Dict] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Get the model list from various sources.
+
+        Args:
+            request_kwargs: Additional request parameters
+
+        Returns:
+            List of model configurations
+        """
+        model_list: List[Dict[str, Any]] = []
+
+        # First, try to get model_list from the stored router reference
+        if self.router is not None:
+            model_list = getattr(self.router, "model_list", [])
+            logger.debug(
+                f"Got model_list from stored router: {len(model_list) if model_list else 0} items"
+            )
+
+        # Fallback: try getattr on self (for compatibility with older LiteLLM versions)
+        if not model_list:
+            model_list = getattr(self, "model_list", [])
+            logger.debug(
+                f"Got model_list via getattr on self: {len(model_list) if model_list else 0} items"
+            )
+
+        # Fallback to request_kwargs if available (for compatibility)
+        if not model_list and request_kwargs and "router" in request_kwargs:
+            router = request_kwargs["router"]
+            model_list = router.model_list if hasattr(router, "model_list") else []
+            logger.debug(
+                f"Got model_list via request_kwargs: {len(model_list) if model_list else 0} items"
+            )
+
+        return model_list
+
     async def async_get_available_deployment(  # type: ignore[override]
         self,
         model: str,
@@ -365,29 +252,7 @@ class ChutesUtilizationRouting(CustomRoutingStrategyBase):
             Model configuration dict from model_list, or None to fall back to default
         """
         try:
-            # First, try to get model_list from the stored router reference
-            model_list = []
-
-            if self.router is not None:
-                model_list = getattr(self.router, "model_list", [])
-                logger.debug(
-                    f"Got model_list from stored router: {len(model_list) if model_list else 0} items"
-                )
-
-            # Fallback: try getattr on self (for compatibility with older LiteLLM versions)
-            if not model_list:
-                model_list = getattr(self, "model_list", [])
-                logger.debug(
-                    f"Got model_list via getattr on self: {len(model_list) if model_list else 0} items"
-                )
-
-            # Fallback to request_kwargs if available (for compatibility)
-            if not model_list and request_kwargs and "router" in request_kwargs:
-                router = request_kwargs["router"]
-                model_list = router.model_list if hasattr(router, "model_list") else []
-                logger.debug(
-                    f"Got model_list via request_kwargs: {len(model_list) if model_list else 0} items"
-                )
+            model_list = self._get_model_list(request_kwargs)
 
             if not model_list:
                 logger.warning("No model list available for routing")
@@ -461,26 +326,7 @@ class ChutesUtilizationRouting(CustomRoutingStrategyBase):
             Model configuration dict from model_list, or None to fall back to default
         """
         try:
-            # First, try to get model_list from the stored router reference
-            model_list = []
-
-            if self.router is not None:
-                model_list = getattr(self.router, "model_list", [])
-                logger.debug(
-                    f"Got model_list from stored router: {len(model_list) if model_list else 0} items"
-                )
-
-            # Fallback: try getattr on self (for compatibility with older LiteLLM versions)
-            if not model_list:
-                model_list = getattr(self, "model_list", [])
-                logger.debug(
-                    f"Got model_list via getattr on self: {len(model_list) if model_list else 0} items"
-                )
-
-            # Fallback to request_kwargs if available (for compatibility)
-            if not model_list and request_kwargs and "router" in request_kwargs:
-                router = request_kwargs["router"]
-                model_list = router.model_list if hasattr(router, "model_list") else []
+            model_list = self._get_model_list(request_kwargs)
 
             if not model_list:
                 logger.warning("No model list available for routing")
