@@ -4,6 +4,8 @@
 
 Implementation checklist for the intelligent multi-metric routing system. This feature adds a new routing strategy that considers multiple performance metrics (TPS, TTFT, quality, utilization) for optimal request distribution across AI model deployments.
 
+> **Important**: This implementation focuses on **chute-level routing only**. The chutes.ai platform handles internal node/instance selection automatically. Node-level routing is NOT supported by the platform.
+
 ## Setup
 
 - [ ] **S-001**: Review existing codebase structure
@@ -385,6 +387,8 @@ Implementation checklist for the intelligent multi-metric routing system. This f
 ---
 
 ## Notes
+
+- **Platform Constraint**: This implementation is chute-level only. Chutes.ai handles internal node selection automatically. We cannot target specific nodes within a chute.
 
 - **User Decisions Incorporated**:
   - Skip `/miner/scores` - use `total_invocations` from `/chutes/utilization`

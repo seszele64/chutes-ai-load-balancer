@@ -6,6 +6,8 @@
 **As a** system administrator or developer using the LiteLLM proxy
 **I want to** route requests using a configurable multi-metric strategy that considers TPS, TTFT, quality, and utilization
 
+> **Important**: This behavior specification covers **chute-level routing only**. The chutes.ai platform handles internal node/instance selection automatically. We cannot target specific nodes within a chute.
+
 ---
 
 ## Background

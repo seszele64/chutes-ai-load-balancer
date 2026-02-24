@@ -69,6 +69,21 @@ This design documents the technical implementation for an intelligent multi-metr
 
 ## Architecture
 
+### Two-Tier Routing: Model → Chute (No Node-Level Selection)
+
+> **Important Platform Constraint**: The chutes.ai platform does **NOT** support targeting specific nodes/instances within a chute. The platform handles node selection automatically through its internal load balancing. This design implements **chute-level routing only** (2-tier), not node-level routing (3-tier).
+
+**Routing Hierarchy**:
+```
+Tier 1: Model Selection (which model: Kimi, GLM, or Qwen)
+    │
+    ▼
+Tier 2: Chute Selection (which chute for that model)
+    │
+    ▼
+    [Chutes.ai handles internal node/instance selection automatically]
+```
+
 ### Component Diagram
 
 ```
@@ -113,11 +128,10 @@ This design documents the technical implementation for an intelligent multi-metr
     │ - utilization  │  │ - tps           │  │ Returns:        │
     │ - total_invocations │ │ - ttft     │  │ - utilization   │
     └─────────────────┘  └─────────────────┘  │ - total_invocations │
-                                               └─────────────────┘
+                                                └─────────────────┘
 
-    NOTE: /miner/scores SKIPPED
-    - Use total_invocations from /chutes/utilization as reliability proxy
-    - Eliminates extra API call dependency
+    NOTE: Chute-level metrics only - Node selection handled by platform
+    - /miner/scores SKIPPED (quality derived from total_invocations)
 ```
 
 ### Data Flow
@@ -589,13 +603,14 @@ class MetricsCache:
 
 class ChutesAPIClient:
     """
-    Client for Chutes API endpoints.
+    Client for Chutes API endpoints (chute-level only).
     
     Endpoints used:
-    - GET /chutes/utilization - returns utilization + total_invocations
-    - GET /invocations/stats/llm - returns TPS + TTFT
+    - GET /chutes/utilization - returns chute-level utilization + total_invocations
+    - GET /invocations/stats/llm - returns chute-level TPS + TTFT
     
-    NOTE: /miner/scores is SKIPPED per user decision
+    NOTE: All metrics are at CHUTE LEVEL. Node-level metrics are NOT available.
+    Chutes.ai handles internal node/instance selection automatically.
     """
     
     BASE_URL = os.environ.get("CHUTES_API_URL", "http://localhost:8080")
@@ -967,6 +982,8 @@ tests/
 ---
 
 ## Notes
+
+- **Platform Constraint**: This design implements chute-level routing only. Chutes.ai handles internal node/instance selection automatically. We cannot target specific nodes within a chute.
 
 - **User Decision: Skip /miner/scores**: Quality is derived from `total_invocations` in `/chutes/utilization` response
 - **User Decision: 5-minute refresh**: TPS/TTFT cached for 5 minutes (300s), utilization at 30s

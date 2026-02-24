@@ -4,16 +4,23 @@
 
 Current routing only uses utilization data, ignoring critical performance metrics like TPS (tokens per second), TTFT (time to first token), and quality scores. This leads to suboptimal routing decisions - for example, routing to GLM with 28.85s latency when Kimi has only 6.45s. The existing ChutesUtilizationRouting strategy lacks awareness of latency, throughput, and quality metrics that are available from the chutes API.
 
+## Important Platform Constraint
+
+> **Chutes.ai Platform Limitation**: The chutes.ai platform does NOT support targeting specific nodes/instances within a chute. Node selection is handled automatically by the platform's internal load balancing. Therefore, this design focuses on **chute-level routing only** (2-tier: model → chute), not node-level routing (3-tier).
+
 ## Scope
 
 ### In Scope
-- [ ] Multi-metric scoring system (TPS, TTFT, quality, utilization)
+- [ ] Multi-metric scoring system (TPS, TTFT, quality, utilization) at chute level
 - [ ] Pluggable routing strategies (speed/latency/quality/balanced)
 - [ ] Metrics caching with separate TTLs per metric type
 - [ ] Fallback to utilization-only when metrics unavailable
 - [ ] Configuration via YAML and environment variables
+- [ ] Chute-level routing (not node-level)
 
 ### Out of Scope
+- Node-level routing or instance selection within a chute
+- Targeting specific miners/instances within a chute
 - Machine learning-based routing
 - Multi-armed bandit algorithms
 - Client-side routing selection
@@ -70,11 +77,12 @@ If issues arise:
 ## Dependencies
 
 ### External Dependencies
-- Chutes API endpoints:
-  - `/chutes/utilization` - Current utilization data
-  - `/invocations/stats/llm` - LLM invocation statistics (TPS, TTFT)
-  - `/miner/scores` - Quality scores from miners
+- Chutes API endpoints (chute-level only):
+  - `/chutes/utilization` - Chute-level utilization data
+  - `/invocations/stats/llm` - Chute-level LLM invocation statistics (TPS, TTFT)
 - LiteLLM proxy integration (http://localhost:4000)
+
+> **Note**: The `/miner/scores` endpoint is NOT used. Quality is derived from `total_invocations` in `/chutes/utilization`.
 
 ### Internal Dependencies
 - Existing ChutesUtilizationRouting strategy (to be extended)

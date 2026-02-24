@@ -4,6 +4,8 @@
 
 Concrete examples that define expected behavior through Input-Output pairs, Edge Cases, and State Transitions.
 
+> **Important**: These examples demonstrate **chute-level routing only**. The chutes.ai platform handles internal node/instance selection automatically. We cannot target specific nodes within a chute - only which chute (model deployment) to route to.
+
 > **EDD Note**: These examples serve as the "training data" for understanding the feature. Make them specific, executable, and comprehensive enough that an AI can learn the pattern and generate correct behavior.
 
 ---
