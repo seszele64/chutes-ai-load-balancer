@@ -24,6 +24,54 @@ A local proxy that load balances between chutes.ai models with automatic failove
 
 4. The proxy will run at `http://localhost:4000`
 
+## Intelligent Multi-Metric Routing
+
+The proxy supports multiple routing strategies that consider multiple performance metrics:
+
+| Strategy | Description | Best For |
+|----------|-------------|----------|
+| `balanced` (default) | Equal weights for TPS, TTFT, quality, utilization | General purpose |
+| `speed` | Prioritizes TPS (throughput) | High-volume requests |
+| `latency` | Prioritizes TTFT (time to first token) | Interactive applications |
+| `quality` | Prioritizes reliability/usage history | Production workloads |
+| `utilization_only` | Routes to least utilized only | Legacy mode |
+
+### Configuration
+
+**Command Line:**
+```bash
+# Use speed strategy
+python start_litellm.py --routing-strategy speed
+
+# Use latency strategy
+python start_litellm.py -r latency
+```
+
+**Environment Variables:**
+```bash
+# Set routing strategy
+ROUTING_STRATEGY=balanced  # balanced, speed, latency, quality, utilization_only
+
+# Custom weights (must sum to 1.0)
+ROUTING_TPS_WEIGHT=0.5
+ROUTING_TTFT_WEIGHT=0.3
+ROUTING_QUALITY_WEIGHT=0.1
+ROUTING_UTILIZATION_WEIGHT=0.1
+
+# Cache TTLs (in seconds)
+CACHE_TTL_UTILIZATION=30
+CACHE_TTL_TPS=300
+CACHE_TTL_TTFT=300
+CACHE_TTL_QUALITY=300
+```
+
+### Metrics Used
+
+- **TPS** (Tokens Per Second): Throughput measurement
+- **TTFT** (Time To First Token): Latency measurement  
+- **Quality**: Derived from total invocations (reliability proxy)
+- **Utilization**: Current load (0.0 = idle, 1.0 = fully utilized)
+
 ## Usage with OpenCode
 
 Add this to your `~/.config/opencode/opencode.jsonc`:
