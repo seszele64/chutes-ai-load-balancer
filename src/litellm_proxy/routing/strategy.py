@@ -391,3 +391,136 @@ def create_chutes_routing_strategy(
         Configured ChutesUtilizationRouting instance
     """
     return ChutesUtilizationRouting(chutes_api_key=chutes_api_key, cache_ttl=cache_ttl)
+
+
+# ============================================================
+# Intelligent Multi-Metric Routing - Strategy Types
+# ============================================================
+
+import os
+from enum import Enum
+from dataclasses import dataclass
+
+
+class RoutingStrategy(Enum):
+    """
+    Available routing strategies for intelligent multi-metric routing.
+
+    Each strategy uses different weights for the performance metrics:
+    - SPEED: Prioritizes TPS (throughput)
+    - LATENCY: Prioritizes TTFT (time to first token)
+    - BALANCED: Equal weights (default)
+    - QUALITY: Prioritizes reliability/quality
+    - UTILIZATION_ONLY: Fallback mode, only uses utilization
+    """
+
+    SPEED = "speed"
+    LATENCY = "latency"
+    BALANCED = "balanced"
+    QUALITY = "quality"
+    UTILIZATION_ONLY = "utilization_only"
+
+    @classmethod
+    def from_string(cls, value: str) -> "RoutingStrategy":
+        """Create enum from string value."""
+        value_lower = value.lower().strip()
+        for strategy in cls:
+            if strategy.value == value_lower:
+                return strategy
+        return cls.BALANCED
+
+
+# Predefined strategy weights
+_DEFAULT_WEIGHTS = {
+    RoutingStrategy.SPEED: None,  # type: ignore[assignment]
+    RoutingStrategy.LATENCY: None,  # type: ignore[assignment]
+    RoutingStrategy.BALANCED: None,  # type: ignore[assignment]
+    RoutingStrategy.QUALITY: None,  # type: ignore[assignment]
+    RoutingStrategy.UTILIZATION_ONLY: None,  # type: ignore[assignment]
+}
+
+
+def _init_default_weights() -> None:
+    """Initialize default weights."""
+    global _DEFAULT_WEIGHTS
+    _DEFAULT_WEIGHTS[RoutingStrategy.SPEED] = StrategyWeights(
+        tps=0.5, ttft=0.3, quality=0.1, utilization=0.1
+    )
+    _DEFAULT_WEIGHTS[RoutingStrategy.LATENCY] = StrategyWeights(
+        tps=0.1, ttft=0.6, quality=0.15, utilization=0.15
+    )
+    _DEFAULT_WEIGHTS[RoutingStrategy.BALANCED] = StrategyWeights(
+        tps=0.25, ttft=0.25, quality=0.25, utilization=0.25
+    )
+    _DEFAULT_WEIGHTS[RoutingStrategy.QUALITY] = StrategyWeights(
+        tps=0.15, ttft=0.15, quality=0.5, utilization=0.2
+    )
+    _DEFAULT_WEIGHTS[RoutingStrategy.UTILIZATION_ONLY] = StrategyWeights(
+        tps=0.0, ttft=0.0, quality=0.0, utilization=1.0
+    )
+
+
+@dataclass
+class StrategyWeights:
+    """
+    Weight configuration for scoring.
+
+    Weights determine how much each metric contributes to the final score.
+    All weights should sum to 1.0.
+
+    Attributes:
+        tps: Weight for TPS (tokens per second)
+        ttft: Weight for TTFT (time to first token)
+        quality: Weight for quality (derived from total_invocations)
+        utilization: Weight for utilization (lower is better)
+    """
+
+    tps: float = 0.25
+    ttft: float = 0.25
+    quality: float = 0.25
+    utilization: float = 0.25
+
+    @classmethod
+    def from_strategy(cls, strategy: RoutingStrategy) -> "StrategyWeights":
+        """Get default weights for a routing strategy."""
+        if _DEFAULT_WEIGHTS.get(RoutingStrategy.SPEED) is None:
+            _init_default_weights()
+        return _DEFAULT_WEIGHTS.get(strategy, cls())
+
+    @classmethod
+    def from_env(cls) -> "StrategyWeights":
+        """Create weights from environment variables."""
+
+        def get_float(env_var: str, default: float) -> float:
+            value = os.environ.get(env_var)
+            if value is not None:
+                try:
+                    return float(value)
+                except ValueError:
+                    pass
+            return default
+
+        return cls(
+            tps=get_float("ROUTING_TPS_WEIGHT", 0.25),
+            ttft=get_float("ROUTING_TTFT_WEIGHT", 0.25),
+            quality=get_float("ROUTING_QUALITY_WEIGHT", 0.25),
+            utilization=get_float("ROUTING_UTILIZATION_WEIGHT", 0.25),
+        )
+
+    def validate(self) -> bool:
+        """Validate that weights sum to 1.0."""
+        total = self.tps + self.ttft + self.quality + self.utilization
+        return abs(total - 1.0) < 0.001
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary representation."""
+        return {
+            "tps": self.tps,
+            "ttft": self.ttft,
+            "quality": self.quality,
+            "utilization": self.utilization,
+        }
+
+
+# Initialize default weights
+_init_default_weights()

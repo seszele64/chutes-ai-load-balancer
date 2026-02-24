@@ -37,11 +37,28 @@ model_list:
 # Note: Custom routing strategy is set programmatically in start_litellm.py
 router_settings:
   routing_strategy: simple-shuffle  # Default fallback if custom strategy fails
+  routing_strategy_multi_metric: balanced  # Options: balanced, speed, latency, quality, utilization_only
   enable_pre_call_checks: false  # Disable for custom routing (handled by strategy)
   num_retries: 3
   timeout: 300
   allowed_fails: 5  # Number of failures before cooldown
   cooldown_time: 30  # Cooldown period in seconds
+
+  # Intelligent Multi-Metric Routing Configuration
+  # routing_weights:  # Optional custom weights (must sum to 1.0)
+  #   tps: 0.25
+  #   ttft: 0.25
+  #   quality: 0.25
+  #   utilization: 0.25
+
+  # cache_ttls:  # Cache TTL in seconds
+  #   utilization: 30
+  #   tps: 300
+  #   ttft: 300
+  #   quality: 300
+
+  # chutes_api_url: "https://api.chutes.ai"
+  # high_utilization_warning_threshold: 0.8
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
