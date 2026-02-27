@@ -274,6 +274,13 @@ router_settings:
 | `CACHE_TTL_TPS` | TPS cache TTL (seconds) | 300 |
 | `CACHE_TTL_TTFT` | TTFT cache TTL (seconds) | 300 |
 | `CACHE_TTL_QUALITY` | Quality cache TTL (seconds) | 300 |
+| `CACHE_TTL_SECONDS` | General metrics cache TTL (seconds) | 60 |
+| `CIRCUIT_BREAKER_ENABLED` | Enable circuit breaker | `true` |
+| `CIRCUIT_BREAKER_FAILURE_THRESHOLD` | Failures before opening | 3 |
+| `CIRCUIT_BREAKER_TIMEOUT_SECONDS` | Cooldown period (seconds) | 30 |
+| `CIRCUIT_BREAKER_SUCCESS_THRESHOLD` | Successes to close circuit | 2 |
+| `DEGRADATION_ENABLED` | Enable graceful degradation | `true` |
+| `USE_STRUCTURED_RESPONSES` | Enable structured error responses | `false` |
 
 ## How It Works
 
@@ -316,6 +323,146 @@ If metrics cannot be fetched:
 1. **Try cached data**: If available, use stale cached values
 2. **Utilization-only mode**: If no metrics available, fall back to selecting least utilized
 3. **Random selection**: If no data at all, select randomly
+
+---
+
+## Circuit Breaker
+
+The circuit breaker pattern prevents cascading failures by tracking consecutive failures and temporarily stopping requests to unhealthy chutes.
+
+### Circuit States
+
+| State | Description | Behavior |
+|-------|-------------|----------|
+| **CLOSED** | Normal operation | Requests flow normally, failures are counted |
+| **OPEN** | Circuit tripped | Requests are rejected immediately |
+| **HALF_OPEN** | Testing recovery | Limited requests allowed to test recovery |
+
+### State Transitions
+
+```
+CLOSED → OPEN: After CIRCUIT_BREAKER_FAILURE_THRESHOLD consecutive failures
+     ↓
+OPEN → HALF_OPEN: After CIRCUIT_BREAKER_TIMEOUT_SECONDS cooldown period
+     ↓
+HALF_OPEN → CLOSED: After CIRCUIT_BREAKER_SUCCESS_THRESHOLD successful requests
+HALF_OPEN → OPEN: If any request fails during test
+```
+
+### Configuration
+
+| Environment Variable | Default | Description |
+|---------------------|---------|--------------|
+| `CIRCUIT_BREAKER_ENABLED` | `true` | Enable/disable circuit breaker |
+| `CIRCUIT_BREAKER_FAILURE_THRESHOLD` | `3` | Failures before opening circuit |
+| `CIRCUIT_BREAKER_TIMEOUT_SECONDS` | `30` | Seconds to wait before half-open |
+| `CIRCUIT_BREAKER_SUCCESS_THRESHOLD` | `2` | Successes to close circuit |
+
+### Example: Monitoring Circuit State
+
+Check the `X-Circuit-Breaker-State` header in responses:
+
+```bash
+curl -I http://localhost:4000/v1/chat/completions \
+  -H "Authorization: Bearer $LITELLM_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "chutes-models", "messages": [{"role": "user", "content": "test"}]}'
+
+# Response headers include:
+# X-Circuit-Breaker-State: CLOSED
+# X-Circuit-Breaker-State: OPEN
+# X-Circuit-Breaker-State: HALF_OPEN
+```
+
+---
+
+## Graceful Degradation
+
+When the routing system encounters failures, it gracefully degrades to ensure continued service availability.
+
+### Degradation Levels
+
+| Level | Name | Description | When Triggered |
+|-------|------|-------------|----------------|
+| **0** | Full | Normal operation - all metrics available | Default |
+| **1** | Cached | Use cached metrics instead of live | API timeout |
+| **2** | Utilization-Only | Use utilization metric only | Multiple API failures |
+| **3** | Random | Random selection | No metrics available |
+| **4** | Failure | Return error | All degradation exhausted |
+
+### Degradation Flow
+
+```
+Request arrives
+      │
+      ▼
+Level 0: Try normal routing with live metrics
+      │
+      ├─ Success → Return response
+      │
+      ▼ (failure)
+Level 1: Use cached metrics
+      │
+      ├─ Success → Return response + X-Degradation-Level: 1
+      │
+      ▼ (failure)
+Level 2: Use utilization only
+      │
+      ├─ Success → Return response + X-Degradation-Level: 2
+      │
+      ▼ (failure)
+Level 3: Random selection
+      │
+      ├─ Success → Return response + X-Degradation-Level: 3
+      │
+      ▼ (failure)
+Level 4: Return structured error + X-Degradation-Level: 4
+```
+
+### Response Headers
+
+| Header | Values | Description |
+|--------|--------|-------------|
+| `X-Degradation-Level` | 0-4 | Current degradation level |
+| `X-Circuit-Breaker-State` | CLOSED, OPEN, HALF_OPEN | Circuit breaker status |
+
+### Example Response with Degradation
+
+```bash
+# Request with degradation
+curl http://localhost:4000/v1/chat/completions \
+  -H "Authorization: Bearer $LITELLM_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "chutes-models", "messages": [{"role": "user", "content": "test"}]}'
+
+# Response headers:
+# X-Degradation-Level: 1
+# X-Circuit-Breaker-State: CLOSED
+```
+
+### Error Response Format (RFC 9457)
+
+Errors are returned in RFC 9457 Problem Details format with OpenAI compatibility:
+
+```json
+{
+  "error": {
+    "message": "All routing degradation levels exhausted: circuit breaker open",
+    "type": "server_error",
+    "code": "degradation_exhausted",
+    "param": null,
+    "degradation_level": 4,
+    "circuit_breaker_state": "OPEN"
+  }
+}
+```
+
+### Configuration
+
+| Environment Variable | Default | Description |
+|---------------------|---------|--------------|
+| `DEGRADATION_ENABLED` | `true` | Enable/disable graceful degradation |
+| `USE_STRUCTURED_RESPONSES` | `false` | Enable structured error responses |
 
 ### High Utilization Warning
 

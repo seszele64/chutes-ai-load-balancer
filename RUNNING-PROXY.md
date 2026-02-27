@@ -110,6 +110,19 @@ LITELLM_MASTER_KEY=your-master-key
 LITELLM_PORT=4000           # Default: 4000
 LITELLM_HOST=0.0.0.0        # Default: 0.0.0.0 (accessible from localhost)
 LITELLM_CONFIG_PATH=./litellm-config.yaml
+
+# Circuit Breaker (enabled by default)
+CIRCUIT_BREAKER_ENABLED=true              # Enable/disable circuit breaker
+CIRCUIT_BREAKER_FAILURE_THRESHOLD=3       # Failures before opening circuit
+CIRCUIT_BREAKER_TIMEOUT_SECONDS=30        # Cooldown time before recovery
+CIRCUIT_BREAKER_SUCCESS_THRESHOLD=2       # Successes needed to close circuit
+
+# Graceful Degradation (enabled by default)
+DEGRADATION_ENABLED=true                  # Enable/disable graceful degradation
+USE_STRUCTURED_RESPONSES=true             # Legacy: enable structured responses
+
+# Caching
+CACHE_TTL_SECONDS=60                      # Default cache TTL for all metrics
 ```
 
 ### Custom Port
@@ -148,14 +161,119 @@ tail -f /tmp/litellm-proxy.log
 
 ## API Endpoints
 
-| Endpoint | Description |
-|----------|-------------|
-| `GET /` | Interactive API docs (Swagger UI) |
-| `GET /health` | Health check endpoint |
-| `GET /info` | Model information |
-| `POST /v1/chat/completions` | Chat completion API |
-| `POST /v1/completions` | Text completion API |
-| `GET /v1/models` | List available models |
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Interactive API docs (Swagger UI) |
+| `/health` | GET | Health check endpoint (LiteLLM) |
+| `/health/liveliness` | GET | Basic alive check |
+| `/health/readiness` GET | Ready to accept traffic |
+| `/api/health` | GET | Health check with circuit breaker state |
+| `/api/metrics` | GET | Prometheus metrics |
+| `/api/v1/models` | GET | List available models |
+| `/info` | GET | Model information |
+| `/v1/chat/completions` | POST | Chat completion API |
+| `/v1/completions` | POST | Text completion API |
+| `/v1/models` | GET | List available models (OpenAI-compatible) |
+
+### HTTP API Endpoints
+
+The proxy provides additional HTTP endpoints with structured responses:
+
+#### Health Check
+
+```bash
+curl http://localhost:4000/api/health
+```
+
+Response:
+```json
+{
+  "status": "healthy",
+  "degradation_level": 0,
+  "circuit_breaker": {
+    "state": "closed",
+    "failure_count": 0,
+    "last_failure_time": null,
+    "cooldown_remaining": 0.0
+  }
+}
+```
+
+#### Metrics
+
+```bash
+curl http://localhost:4000/api/metrics
+```
+
+Response:
+```text
+# HELP chutes_routing_degradation_level Current degradation level (0-4)
+# TYPE chutes_routing_degradation_level gauge
+chutes_routing_degradation_level 0
+
+# HELP chutes_circuit_breaker_state Circuit breaker state (0=closed, 1=open, 2=half-open)
+# TYPE chutes_circuit_breaker_state gauge
+chutes_circuit_breaker_state 0
+
+# HELP chutes_routing_requests_total Total routing requests
+# TYPE chutes_routing_requests_total counter
+chutes_routing_requests_total{status="success"} 150
+chutes_routing_requests_total{status="degraded"} 10
+chutes_routing_requests_total{status="failed"} 2
+```
+
+#### List Models
+
+```bash
+curl http://localhost:4000/api/v1/models
+```
+
+Response headers include:
+- `X-Degradation-Level`: Current degradation level (0-4)
+
+### Response Headers
+
+All API responses include the following headers:
+
+| Header | Description | Values |
+|--------|-------------|--------|
+| `X-Degradation-Level` | Current degradation level | 0-4 |
+| `X-Circuit-Breaker-State` | Circuit breaker state | closed, open, half_open |
+
+### Error Response Format
+
+Errors are returned in both RFC 9457 Problem Details and OpenAI-compatible formats:
+
+```bash
+# Example error response
+curl -X POST http://localhost:4000/api/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{"model": "chutes-models", "messages": [{"role": "user", "content": "test"}]}'
+```
+
+Response (503 Service Unavailable):
+```json
+{
+  "error": {
+    "message": "All degradation levels exhausted",
+    "type": "server_error",
+    "code": "routing_failed",
+    "param": null
+  },
+  "problem_details": {
+    "type": "https://api.chutes.ai/problems/routing-failed",
+    "title": "Routing Failed",
+    "status": 503,
+    "detail": "All degradation levels exhausted: full, cached, utilization, random",
+    "instance": "/v1/chat/completions",
+    "code": "routing_failed"
+  },
+  "_routing_metadata": {
+    "degradation_level": 4,
+    "degradation_reason": "Complete failure"
+  }
+}
+```
 
 ## Making Requests
 
@@ -278,7 +396,11 @@ tail -f /tmp/litellm-proxy.log | grep -i routing
 - `scripts/test-proxy.sh` - Test script to verify proxy is working
 - `start_litellm.py` - Main Python startup script
 - `litellm-config.yaml` - Model configuration
-- `src/litellm_proxy/routing/intelligent.py` - Custom routing logic
+- `src/litellm_proxy/routing/intelligent.py` - Intelligent multi-metric routing
+- `src/litellm_proxy/routing/circuit_breaker.py` - Circuit breaker implementation
+- `src/litellm_proxy/routing/responses.py` - Structured response types (RFC 9457, OpenAI)
+- `src/litellm_proxy/api/routes.py` - HTTP API endpoints
+- `src/litellm_proxy/exceptions.py` - Custom exception types
 - `.env` - Environment variables (API keys)
 
 ## Security Note

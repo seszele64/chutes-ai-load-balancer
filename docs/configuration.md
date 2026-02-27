@@ -52,6 +52,37 @@ All weights must sum to 1.0 (±0.001 tolerance).
 | `LITELLM_HOST` | Host to bind to | 0.0.0.0 |
 | `LITELLM_CONFIG_PATH` | Path to litellm-config.yaml | ./litellm-config.yaml |
 
+### Structured Responses Configuration
+
+| Variable | Description | Default | Valid Values |
+|----------|-------------|---------|--------------|
+| `USE_STRUCTURED_RESPONSES` | Enable structured error responses | `false` | `true`, `false` |
+
+### Circuit Breaker Configuration
+
+| Variable | Description | Default | Valid Values |
+|----------|-------------|---------|--------------|
+| `CIRCUIT_BREAKER_ENABLED` | Enable circuit breaker | `true` | `true`, `false` |
+| `CIRCUIT_BREAKER_FAILURE_THRESHOLD` | Failures before opening circuit | `3` | 1-10 |
+| `CIRCUIT_BREAKER_TIMEOUT_SECONDS` | Cooldown period before retry | `30` | 10-300 |
+| `CIRCUIT_BREAKER_SUCCESS_THRESHOLD` | Successes to close circuit | `2` | 1-5 |
+
+### Caching Configuration
+
+| Variable | Description | Default | Unit |
+|----------|-------------|---------|------|
+| `CACHE_TTL_SECONDS` | Cache TTL for metrics | `60` | seconds |
+| `CACHE_TTL_UTILIZATION` | Cache TTL for utilization | 30 | seconds |
+| `CACHE_TTL_TPS` | Cache TTL for TPS | 300 | seconds |
+| `CACHE_TTL_TTFT` | Cache TTL for TTFT | 300 | seconds |
+| `CACHE_TTL_QUALITY` | Cache TTL for quality | 300 | seconds |
+
+### Graceful Degradation Configuration
+
+| Variable | Description | Default | Valid Values |
+|----------|-------------|---------|--------------|
+| `DEGRADATION_ENABLED` | Enable graceful degradation | `true` | `true`, `false` |
+
 ## YAML Configuration
 
 ### Router Settings

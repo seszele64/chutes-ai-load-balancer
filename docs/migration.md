@@ -165,6 +165,112 @@ This can happen if the weights don't match your expectations.
 2. Check the score breakdown in logs
 3. Adjust weights if needed
 
+---
+
+## Circuit Breaker Behavior
+
+The circuit breaker pattern is now enabled by default to prevent cascading failures. This is a new feature that tracks consecutive failures and temporarily stops routing to unhealthy chutes.
+
+### What Changed?
+
+- Circuit breaker is now **enabled by default**
+- After 3 consecutive failures (configurable), the circuit "opens"
+- Requests are rejected during the open state
+- After 30 seconds (configurable), the circuit enters "half-open" state
+- After 2 successful requests (configurable), the circuit closes
+
+### Configuration
+
+```bash
+# Disable circuit breaker (not recommended)
+export CIRCUIT_BREAKER_ENABLED=false
+
+# Customize thresholds
+export CIRCUIT_BREAKER_FAILURE_THRESHOLD=5
+export CIRCUIT_BREAKER_TIMEOUT_SECONDS=60
+export CIRCUIT_BREAKER_SUCCESS_THRESHOLD=3
+```
+
+### Migration Notes
+
+If you were relying on the old behavior where requests always went to a chute regardless of failures:
+
+1. The new behavior is more resilient - it prevents overload of failing chutes
+2. If you need the old behavior, set `CIRCUIT_BREAKER_ENABLED=false`
+3. Monitor `X-Circuit-Breaker-State` header to track circuit health
+
+---
+
+## Degradation Levels
+
+The system now has 4 levels of graceful degradation to ensure continued service availability.
+
+### What Changed?
+
+Previously, if metrics couldn't be fetched, the system would return an error. Now, it degrades gracefully:
+
+| Level | Name | Description |
+|-------|------|-------------|
+| **0** | Full | Normal operation - all metrics available |
+| **1** | Cached | Use cached metrics instead of live |
+| **2** | Utilization-Only | Use utilization metric only |
+| **3** | Random | Random selection |
+| **4** | Failure | Return error (all degradation exhausted) |
+
+### Configuration
+
+```bash
+# Disable graceful degradation (not recommended)
+export DEGRADATION_ENABLED=false
+
+# Enable structured error responses
+export USE_STRUCTURED_RESPONSES=true
+```
+
+### Response Headers
+
+Track degradation via response headers:
+
+```bash
+# Check degradation level
+curl -I http://localhost:4000/v1/chat/completions ... 2>&1 | grep X-Degradation-Level
+```
+
+---
+
+## Exception Types
+
+New exception types may be raised by the routing system:
+
+| Exception | Description |
+|-----------|-------------|
+| `CircuitBreakerOpenError` | Circuit breaker is open, request rejected |
+| `DegradationExhaustedError` | All degradation levels exhausted |
+| `MetricsUnavailableError` | Metrics cannot be fetched |
+
+### Error Response Format
+
+When `USE_STRUCTURED_RESPONSES=true`, errors are returned in RFC 9457 format:
+
+```json
+{
+  "error": {
+    "message": "All routing degradation levels exhausted: circuit breaker open",
+    "type": "server_error",
+    "code": "degradation_exhausted",
+    "param": null,
+    "degradation_level": 4,
+    "circuit_breaker_state": "OPEN"
+  }
+}
+```
+
+### Migration Notes
+
+- These exceptions are handled internally by graceful degradation
+- If you see these errors in logs, check circuit breaker state and API connectivity
+- The system automatically recovers when metrics become available again
+
 ## Performance Considerations
 
 ### Cache TTLs

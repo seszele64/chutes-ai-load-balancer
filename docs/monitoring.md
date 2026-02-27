@@ -98,23 +98,6 @@ python start_litellm.py
 | `requests.success` | Successful requests | > 99% |
 | `requests.failed` | Failed requests | Low (< 1%) |
 
-## Prometheus Metrics
-
-If using Prometheus for metrics collection:
-
-```bash
-# Add to your Prometheus scrape config
-- job_name: 'litellm'
-  static_configs:
-    - targets: ['localhost:4000']
-```
-
-Key metrics exposed by LiteLLM:
-- `litellm_requests_total` - Total requests
-- `litellm_request_latency` - Request latency
-- `litellm_model_latency` - Model-specific latency
-- `litellm_errors_total` - Error counts
-
 ## Health Checks
 
 ### Liveness Probe
@@ -146,6 +129,119 @@ curl http://localhost:4000/metrics
 ```
 
 This returns Prometheus-formatted metrics.
+
+### Health Endpoint (Detailed)
+
+```bash
+curl http://localhost:4000/api/health
+```
+
+Returns detailed health status including circuit breaker state:
+
+```json
+{
+  "status": "healthy",
+  "circuit_breaker": {
+    "state": "CLOSED",
+    "failure_count": 0,
+    "success_count": 5
+  },
+  "degradation": {
+    "enabled": true,
+    "current_level": 0
+  },
+  "timestamp": "2024-01-15T10:30:00Z"
+}
+```
+
+### Metrics Endpoint (Detailed)
+
+```bash
+curl http://localhost:4000/api/metrics
+```
+
+Returns system metrics and degradation information:
+
+```json
+{
+  "routing": {
+    "total_requests": 1500,
+    "degradation_levels": {
+      "level_0_full": 1200,
+      "level_1_cached": 200,
+      "level_2_utilization_only": 80,
+      "level_3_random": 15,
+      "level_4_failure": 5
+    }
+  },
+  "circuit_breaker": {
+    "state": "CLOSED",
+    "total_failures": 25,
+    "total_successes": 1475
+  },
+  "cache": {
+    "hit_rate": 0.85,
+    "total_hits": 1275,
+    "total_misses": 225
+  }
+}
+```
+
+### Response Headers
+
+Monitor these headers to track system health:
+
+| Header | Values | Description |
+|--------|--------|-------------|
+| `X-Degradation-Level` | 0-4 | Current degradation level |
+| `X-Circuit-Breaker-State` | CLOSED, OPEN, HALF_OPEN | Circuit breaker status |
+
+Example:
+```bash
+curl -I http://localhost:4000/v1/chat/completions \
+  -H "Authorization: Bearer $LITELLM_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "chutes-models", "messages": [{"role": "user", "content": "test"}]}'
+
+# Response headers:
+# X-Degradation-Level: 0
+# X-Circuit-Breaker-State: CLOSED
+```
+
+### Degradation Level Monitoring
+
+Track `X-Degradation-Level` header to understand system behavior:
+
+| Level | Meaning | Action Required |
+|-------|---------|-----------------|
+| 0 | Normal operation | None |
+| 1 | Using cached metrics | Check API connectivity |
+| 2 | Using utilization only | Check metrics API |
+| 3 | Random selection | Check all data sources |
+| 4 | System failure | Immediate attention needed |
+
+## Prometheus Metrics
+
+If using Prometheus for metrics collection:
+
+```bash
+# Add to your Prometheus scrape config
+- job_name: 'litellm'
+  static_configs:
+    - targets: ['localhost:4000']
+```
+
+Key metrics exposed by LiteLLM:
+- `litellm_requests_total` - Total requests
+- `litellm_request_latency` - Request latency
+- `litellm_model_latency` - Model-specific latency
+- `litellm_errors_total` - Error counts
+
+Additional routing metrics:
+- `routing_cache_hit_total` - Cache hits
+- `routing_cache_miss_total` - Cache misses
+- `routing_degradation_level` - Current degradation level (gauge)
+- `circuit_breaker_state` - Circuit state (0=closed, 1=open, 2=half-open)
 
 ## Alerting
 

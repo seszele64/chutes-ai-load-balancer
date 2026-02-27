@@ -148,6 +148,13 @@ export ROUTING_STRATEGY=utilization_only
 | `CACHE_TTL_TPS` | TPS cache TTL (seconds) | 300 |
 | `CACHE_TTL_TTFT` | TTFT cache TTL (seconds) | 300 |
 | `CACHE_TTL_QUALITY` | Quality cache TTL (seconds) | 300 |
+| `CACHE_TTL_SECONDS` | General metrics cache TTL (seconds) | 60 |
+| `CIRCUIT_BREAKER_ENABLED` | Enable circuit breaker | `true` |
+| `CIRCUIT_BREAKER_FAILURE_THRESHOLD` | Failures before opening | 3 |
+| `CIRCUIT_BREAKER_TIMEOUT_SECONDS` | Cooldown period (seconds) | 30 |
+| `CIRCUIT_BREAKER_SUCCESS_THRESHOLD` | Successes to close circuit | 2 |
+| `DEGRADATION_ENABLED` | Enable graceful degradation | `true` |
+| `USE_STRUCTURED_RESPONSES` | Enable structured error responses | `false` |
 | `CHUTES_API_URL` | Chutes API base URL | `https://api.chutes.ai` |
 | `HIGH_UTILIZATION_THRESHOLD` | Warning threshold | 0.8 |
 
@@ -394,6 +401,94 @@ WARNING: All chutes above 80% utilization
 ```
 
 This indicates you may need to scale your deployments.
+
+---
+
+## Circuit Breaker
+
+The system includes a circuit breaker pattern to prevent cascading failures when chutes become unhealthy.
+
+### States
+
+| State | Description |
+|-------|-------------|
+| **CLOSED** | Normal operation - requests flow normally |
+| **OPEN** | Circuit tripped - requests are rejected |
+| **HALF_OPEN** | Testing recovery - limited requests allowed |
+
+### Configuration
+
+```bash
+export CIRCUIT_BREAKER_ENABLED=true
+export CIRCUIT_BREAKER_FAILURE_THRESHOLD=3
+export CIRCUIT_BREAKER_TIMEOUT_SECONDS=30
+export CIRCUIT_BREAKER_SUCCESS_THRESHOLD=2
+```
+
+### Monitoring
+
+Check circuit state via response headers:
+
+```bash
+curl -I http://localhost:4000/v1/chat/completions ...
+# X-Circuit-Breaker-State: CLOSED
+```
+
+---
+
+## Graceful Degradation
+
+The system implements 4 levels of graceful degradation to ensure continued service availability:
+
+| Level | Name | Description |
+|-------|------|-------------|
+| **0** | Full | Normal operation with all metrics |
+| **1** | Cached | Use cached metrics |
+| **2** | Utilization-Only | Use utilization metric only |
+| **3** | Random | Random selection |
+| **4** | Failure | Return error (exhausted) |
+
+### Response Headers
+
+| Header | Description |
+|--------|-------------|
+| `X-Degradation-Level` | Current degradation level (0-4) |
+| `X-Circuit-Breaker-State` | Circuit breaker state |
+
+### Configuration
+
+```bash
+export DEGRADATION_ENABLED=true
+export USE_STRUCTURED_RESPONSES=true
+```
+
+---
+
+## Error Response Format (RFC 9457)
+
+When `USE_STRUCTURED_RESPONSES=true`, errors are returned in RFC 9457 Problem Details format:
+
+```json
+{
+  "error": {
+    "message": "All routing degradation levels exhausted: circuit breaker open",
+    "type": "server_error",
+    "code": "degradation_exhausted",
+    "param": null,
+    "degradation_level": 4,
+    "circuit_breaker_state": "OPEN"
+  }
+}
+```
+
+The error response includes:
+- `message`: Human-readable error description
+- `type`: Error category (matches OpenAI format)
+- `code`: Specific error code
+- `degradation_level`: Current degradation level (if applicable)
+- `circuit_breaker_state`: Circuit state (if applicable)
+
+---
 
 ## Migration from Legacy Routing
 
