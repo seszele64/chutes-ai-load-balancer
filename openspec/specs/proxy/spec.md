@@ -1,5 +1,23 @@
 # LiteLLM Proxy Specification
 
+## Purpose
+The LiteLLM proxy serves as a unified API gateway in the chutes-load-balancer system. It provides OpenAI-compatible endpoints that route requests to multiple Chutes AI model deployments using intelligent multi-metric load balancing, considering server utilization, latency, and response quality to optimize request distribution.
+
+## Requirements
+
+### Requirement: The proxy SHALL handle model routing
+Users SHALL be able to route requests through the LiteLLM proxy to available model instances.
+
+#### Scenario: Successful request routing
+- **GIVEN** a running LiteLLM proxy with configured models
+- **WHEN** a user sends a chat completion request to the proxy
+- **THEN** the request is routed to an available model instance based on intelligent routing
+
+#### Scenario: Fallback routing on primary model failure
+- **GIVEN** a LiteLLM proxy with multiple configured models
+- **WHEN** the primary model is unavailable
+- **THEN** the request is automatically routed to a fallback model based on priority order
+
 ## Overview
 
 This specification defines the LiteLLM proxy component of the chutes-load-balancer project. The proxy acts as a unified API gateway that routes requests to multiple Chutes AI model deployments using intelligent load balancing.
@@ -15,7 +33,7 @@ This specification defines the LiteLLM proxy component of the chutes-load-balanc
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  ┌──────────────┐    ┌──────────────────────────────────┐ │
-│  │   Router     │───▶│ ChutesUtilizationRouting Strategy│ │
+│  │   Router     │───▶│ Intelligent Multi-Metric Routing │ │
 │  │              │    └──────────────────────────────────┘ │
 │  └──────┬───────┘                    │                     │
 │         │                            ▼                     │
@@ -55,6 +73,34 @@ python start_litellm.py --config ./litellm-config.yaml
 | `LITELLM_PORT` | No | 4000 | Proxy port |
 | `LITELLM_HOST` | No | 0.0.0.0 | Bind host |
 | `LITELLM_CONFIG_PATH` | No | ./litellm-config.yaml | Config file path |
+
+### Routing Strategy
+
+The proxy uses an intelligent multi-metric routing system that considers:
+- Server utilization (GPU, CPU, memory)
+- Response latency
+- Response quality scores
+- Health status
+
+The routing is handled by:
+- `src/litellm_proxy/routing/intelligent.py` - `IntelligentMultiMetricRouting` class
+- `src/litellm_proxy/routing/strategy.py` - `ChutesRoutingStrategy` class (legacy compatibility)
+
+Available strategies: `balanced`, `speed`, `latency`, `quality`, `utilization_only`
+
+#### Routing Strategy Configuration
+
+The routing strategy can be configured via the model configuration:
+
+```yaml
+router_settings:
+  routing_strategy: simple-shuffle  # LiteLLM built-in
+  # Custom routing is applied via custom_handler in litellm_params
+```
+
+#### Legacy Support
+
+For backward compatibility, `ChutesUtilizationRouting` in `routing/strategy.py` still exists but is deprecated in favor of `IntelligentMultiMetricRouting`.
 
 ### Configuration
 
@@ -118,7 +164,7 @@ curl http://localhost:4000/v1/models \
 
 1. Client sends request to `/v1/chat/completions`
 2. LiteLLM Router receives request
-3. Custom routing strategy (`ChutesUtilizationRouting`) is invoked
+3. Custom routing strategy (`IntelligentMultiMetricRouting`) is invoked
 4. Strategy fetches utilization from Chutes API
 5. Strategy selects least-utilized deployment
 6. Request is forwarded to selected Chutes endpoint
@@ -221,6 +267,7 @@ curl http://localhost:4000/health/liveliness
 ## Related Files
 
 - `start_litellm.py` - Proxy startup implementation
-- `chutes_routing.py` - Custom routing strategy
+- `src/litellm_proxy/routing/intelligent.py` - Intelligent multi-metric routing
+- `src/litellm_proxy/routing/strategy.py` - Routing strategy implementation
 - `litellm-config.yaml` - Model configuration
 - `openspec/specs/routing/spec.md` - Routing spec
