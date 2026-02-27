@@ -1,5 +1,15 @@
 # Deep Dive Analysis: /invocations/stats/llm Endpoint
 
+> **Note: Historical Data**
+>
+> This document contains performance analysis data from February 24, 2026.
+> The metrics, chute IDs, and performance characteristics documented here
+> represent a point-in-time snapshot and may no longer reflect the current
+> state of the system. Chute IDs and model deployments frequently change.
+>
+> For current performance data, refer to the latest utilization API or
+> monitoring dashboard.
+
 **Analysis Date:** 2026-02-24  
 **API Key:** API_KEY_REMOVED
 

@@ -205,6 +205,7 @@ def start_proxy_server(
     port: int = 4000,
     host: str = "0.0.0.0",
     litellm_settings: dict = None,  # type: ignore[assignment]
+    custom_routing=None,  # type: ignore[assignment]
 ):
     """
     Start the LiteLLM proxy server.
@@ -215,6 +216,7 @@ def start_proxy_server(
         port: Port to listen on
         host: Host to bind to
         litellm_settings: LiteLLM settings from config
+        custom_routing: Custom routing strategy instance
     """
     import litellm
     from litellm.proxy import proxy_server as ps
@@ -226,6 +228,17 @@ def start_proxy_server(
     # Set router and model_list for the proxy using the global variables
     ps.llm_router = router
     ps.llm_model_list = model_list
+
+    # Mount custom API routes for routing endpoints
+    from litellm_proxy.api.routes import router as api_router, set_routing_instance
+
+    # Set the routing instance for the API routes
+    if custom_routing:
+        set_routing_instance(custom_routing, model_list)
+
+    # Mount the API router at /api/v1
+    ps.app.include_router(api_router, prefix="/api", tags=["routing"])
+    logger.info("Mounted custom routing API routes at /api")
 
     logger.info(f"Starting LiteLLM proxy on {host}:{port}")
     logger.info(f"Registered {len(model_list)} models with proxy")
@@ -395,6 +408,7 @@ def main():
             port=args.port,
             host=args.host,
             litellm_settings=litellm_settings,
+            custom_routing=custom_routing,
         )
     except KeyboardInterrupt:
         logger.info("Shutting down...")

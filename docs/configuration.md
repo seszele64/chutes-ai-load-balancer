@@ -129,9 +129,22 @@ litellm_settings:
 
 ## Strategy Presets
 
+### Quick Comparison
+
+| Strategy | TPS | TTFT | Quality | Utilization | Use Case |
+|----------|-----|------|---------|-------------|----------|
+| **balanced** | 25% | 25% | 25% | 25% | General purpose |
+| **speed** | 50% | 30% | 10% | 10% | Batch processing |
+| **latency** | 10% | 60% | 15% | 15% | Interactive apps |
+| **quality** | 15% | 15% | 50% | 20% | Production workloads |
+| **utilization_only** | 0% | 0% | 0% | 100% | Simple load balancing |
+
 ### Balanced (Default)
 
+Best for: General-purpose applications with no specific performance requirements
+
 ```yaml
+routing_strategy: balanced
 routing_weights:
   tps: 0.25
   ttft: 0.25
@@ -139,9 +152,19 @@ routing_weights:
   utilization: 0.25
 ```
 
+**Example use cases:**
+- Standard API endpoints serving diverse client requests
+- Development and testing environments
+- Mixed workloads that need reasonable performance across all metrics
+
+---
+
 ### Speed
 
+Best for: High-throughput batch processing and volume-oriented workloads
+
 ```yaml
+routing_strategy: speed
 routing_weights:
   tps: 0.50
   ttft: 0.30
@@ -149,9 +172,20 @@ routing_weights:
   utilization: 0.10
 ```
 
+**Example use cases:**
+- Bulk text generation tasks
+- Document processing pipelines
+- Image captioning at scale
+- Data transformation jobs
+
+---
+
 ### Latency
 
+Best for: Interactive applications where response time is critical
+
 ```yaml
+routing_strategy: latency
 routing_weights:
   tps: 0.10
   ttft: 0.60
@@ -159,15 +193,53 @@ routing_weights:
   utilization: 0.15
 ```
 
+**Example use cases:**
+- Customer service chatbots
+- Real-time code assistants
+- Interactive dashboard queries
+- Voice assistants
+
+---
+
 ### Quality
 
+Best for: Critical tasks requiring reliable, consistent performance
+
 ```yaml
+routing_strategy: quality
 routing_weights:
   tps: 0.15
   ttft: 0.15
   quality: 0.50
   utilization: 0.20
 ```
+
+**Example use cases:**
+- Financial analysis and reporting
+- Medical or legal document generation
+- High-stakes customer interactions
+- Production systems requiring SLAs
+
+---
+
+### Utilization Only
+
+Best for: Fallback mode, simple load balancing, or legacy systems
+
+```yaml
+routing_strategy: utilization_only
+routing_weights:
+  tps: 0.0
+  ttft: 0.0
+  quality: 0.0
+  utilization: 1.0
+```
+
+**Example use cases:**
+- When metrics API is temporarily unavailable
+- Simple horizontal scaling scenarios
+- Testing new deployments
+- Fallback during maintenance windows
 
 ## CLI Arguments
 

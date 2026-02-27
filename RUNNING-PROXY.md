@@ -278,7 +278,7 @@ tail -f /tmp/litellm-proxy.log | grep -i routing
 - `scripts/test-proxy.sh` - Test script to verify proxy is working
 - `start_litellm.py` - Main Python startup script
 - `litellm-config.yaml` - Model configuration
-- `chutes_routing.py` - Custom routing logic
+- `src/litellm_proxy/routing/intelligent.py` - Custom routing logic
 - `.env` - Environment variables (API keys)
 
 ## Security Note

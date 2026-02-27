@@ -35,49 +35,199 @@ python start_litellm.py
 
 ## Routing Strategies
 
-### Balanced (Default)
+The routing system provides five predefined strategies, each optimized for different use cases. Choose the strategy that best matches your workload requirements.
 
-Equal weights for all metrics:
+### Strategy Comparison Table
+
+| Strategy | TPS Weight | TTFT Weight | Quality Weight | Utilization Weight | Best For |
+|----------|------------|-------------|----------------|--------------------|----------|
+| **BALANCED** (default) | 25% | 25% | 25% | 25% | General purpose, no specific requirements |
+| **SPEED** | 50% | 30% | 10% | 10% | High-throughput workloads, batch processing |
+| **LATENCY** | 10% | 60% | 15% | 15% | Interactive applications, chat, real-time responses |
+| **QUALITY** | 15% | 15% | 50% | 20% | Critical tasks, production workloads |
+| **UTILIZATION_ONLY** | 0% | 0% | 0% | 100% | Fallback mode, simple load balancing |
+
+### Detailed Strategy Descriptions
+
+#### 1. BALANCED (Default)
+
+```
+Environment variable: ROUTING_STRATEGY=balanced
+```
+
+**Weights:**
 - TPS: 25%
 - TTFT: 25%
 - Quality: 25%
 - Utilization: 25%
 
-Best for general-purpose applications.
+**Best for:**
+- General-purpose applications with no specific performance requirements
+- Mixed workloads that need reasonable performance across all metrics
+- Getting started - provides good defaults without tuning
 
-### Speed
+**Example use cases:**
+- Standard API endpoints serving diverse client requests
+- Development and testing environments
+- When you're unsure which strategy to use
 
-Prioritizes throughput:
+---
+
+#### 2. SPEED
+
+```
+Environment variable: ROUTING_STRATEGY=speed
+```
+
+**Weights:**
 - TPS: 50%
 - TTFT: 30%
 - Quality: 10%
 - Utilization: 10%
 
-Best for high-volume batch processing.
+**Best for:**
+- High-throughput batch processing
+- Applications where volume matters more than individual response quality
+- Data processing pipelines
 
-### Latency
+**Example use cases:**
+- Bulk text generation tasks
+- Document processing jobs
+- Image captioning at scale
 
-Prioritizes response time:
+**Configuration:**
+```bash
+export ROUTING_STRATEGY=speed
+# or
+python start_litellm.py --routing-strategy speed
+```
+
+---
+
+#### 3. LATENCY
+
+```
+Environment variable: ROUTING_STRATEGY=latency
+```
+
+**Weights:**
 - TPS: 10%
 - TTFT: 60%
 - Quality: 15%
 - Utilization: 15%
 
-Best for interactive applications where fast response is critical.
+**Best for:**
+- Interactive applications where response time is critical
+- Chat interfaces and conversational AI
+- Real-time response requirements
+- User-facing applications
 
-### Quality
+**Example use cases:**
+- Customer service chatbots
+- Real-time code assistants
+- Interactive dashboard queries
+- Voice assistants
 
-Prioritizes reliability:
+**Configuration:**
+```bash
+export ROUTING_STRATEGY=latency
+# or
+python start_litellm.py --routing-strategy latency
+```
+
+---
+
+#### 4. QUALITY
+
+```
+Environment variable: ROUTING_STRATEGY=quality
+```
+
+**Weights:**
 - TPS: 15%
 - TTFT: 15%
 - Quality: 50%
 - Utilization: 20%
 
-Best for production workloads requiring consistent performance.
+**Best for:**
+- Critical tasks requiring reliable, consistent performance
+- Production workloads where quality is paramount
+- Applications with strict reliability requirements
 
-### Utilization Only
+**Example use cases:**
+- Financial analysis and reporting
+- Medical or legal document generation
+- High-stakes customer interactions
+- Production systems requiring SLAs
 
-Legacy mode - routes to the least utilized model only. Use this if you want to revert to the old behavior.
+**Configuration:**
+```bash
+export ROUTING_STRATEGY=quality
+# or
+python start_litellm.py --routing-strategy quality
+```
+
+---
+
+#### 5. UTILIZATION_ONLY
+
+```
+Environment variable: ROUTING_STRATEGY=utilization_only
+```
+
+**Weights:**
+- TPS: 0%
+- TTFT: 0%
+- Quality: 0%
+- Utilization: 100%
+
+**Best for:**
+- Fallback mode when other metrics are unavailable
+- Simple load balancing scenarios
+- Legacy systems migrating to the new routing
+- Debugging and troubleshooting
+
+**Example use cases:**
+- When metrics API is temporarily unavailable
+- Simple horizontal scaling scenarios
+- Testing new deployments
+- Fallback during maintenance windows
+
+**Configuration:**
+```bash
+export ROUTING_STRATEGY=utilization_only
+# or
+python start_litellm.py --routing-strategy utilization_only
+```
+
+---
+
+### Custom Weights
+
+For fine-grained control, you can set custom weights using environment variables:
+
+```bash
+# Example: Prioritize throughput with minimal latency concern
+export ROUTING_TPS_WEIGHT=0.45
+export ROUTING_TTFT_WEIGHT=0.45
+export ROUTING_QUALITY_WEIGHT=0.05
+export ROUTING_UTILIZATION_WEIGHT=0.05
+
+# Then start with balanced (custom weights override)
+python start_litellm.py --routing-strategy balanced
+```
+
+**Important:** Weights must sum to 1.0 (±0.001 tolerance).
+
+### Quick Reference
+
+| Workload Type | Recommended Strategy |
+|---------------|---------------------|
+| General API | BALANCED |
+| Batch processing | SPEED |
+| Chat/Interactive | LATENCY |
+| Production/Reliability | QUALITY |
+| Simple load balancing | UTILIZATION_ONLY |
 
 ## Configuration Files
 

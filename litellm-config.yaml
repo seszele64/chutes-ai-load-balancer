@@ -35,6 +35,7 @@ model_list:
 
 # Router settings
 # Note: Custom routing strategy is set programmatically in start_litellm.py
+# This configuration prioritizes speed and latency (TTFT and TPS) over quality and utilization
 router_settings:
   routing_strategy: simple-shuffle  # Default fallback if custom strategy fails
   routing_strategy_multi_metric: balanced  # Options: balanced, speed, latency, quality, utilization_only
@@ -45,17 +46,19 @@ router_settings:
   cooldown_time: 30  # Cooldown period in seconds
 
   # Intelligent Multi-Metric Routing Configuration
-  # routing_weights:  # Optional custom weights (must sum to 1.0)
-  #   tps: 0.25
-  #   ttft: 0.25
-  #   quality: 0.25
-  #   utilization: 0.25
+  # This weighting prioritizes TTFT (0.45) and TPS (0.45) for fastest response and highest throughput,
+  # with minimal consideration for quality (0.05) and utilization (0.05)
+  routing_weights:  # Optional custom weights (must sum to 1.0)
+    ttft: 0.45
+    tps: 0.45
+    quality: 0.05
+    utilization: 0.05
 
-  # cache_ttls:  # Cache TTL in seconds
-  #   utilization: 30
-  #   tps: 300
-  #   ttft: 300
-  #   quality: 300
+  cache_ttls:  # Cache TTL in seconds
+    utilization: 30  # Changes frequently - shorter TTL
+    tps: 300  # Stable metric - longer TTL
+    ttft: 300  # Stable metric - longer TTL
+    quality: 300  # Stable metric - longer TTL
 
   # chutes_api_url: "https://api.chutes.ai"
   # high_utilization_warning_threshold: 0.8

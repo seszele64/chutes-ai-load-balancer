@@ -17,8 +17,14 @@ from litellm import CustomRoutingStrategyBase
 from litellm_proxy.routing.metrics import ChuteMetrics, ChuteScore, RoutingDecision
 from litellm_proxy.routing.strategy import RoutingStrategy, StrategyWeights
 from litellm_proxy.routing.cache import MetricsCache
+from litellm_proxy.routing.circuit_breaker import CircuitBreaker, CircuitBreakerConfig
+from litellm_proxy.routing.responses import ResponseBuilder, DegradationLevel
 from litellm_proxy.api.client import ChutesAPIClient
-from litellm_proxy.exceptions import ChutesRoutingError
+from litellm_proxy.exceptions import (
+    ChutesRoutingError,
+    EmptyModelListError,
+    DegradationExhaustedError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +67,11 @@ class IntelligentMultiMetricRouting(ChutesRoutingStrategy, CustomRoutingStrategy
         cache_ttl_tps: int = 300,
         cache_ttl_ttft: int = 300,
         cache_ttl_quality: int = 300,
+        enable_circuit_breaker: Optional[bool] = None,
+        enable_degradation: Optional[bool] = None,
+        circuit_breaker_failure_threshold: Optional[int] = None,
+        circuit_breaker_timeout_seconds: Optional[int] = None,
+        cache_ttl_seconds: Optional[int] = None,
     ):
         """
         Initialize the intelligent multi-metric routing strategy.
@@ -76,7 +87,54 @@ class IntelligentMultiMetricRouting(ChutesRoutingStrategy, CustomRoutingStrategy
             cache_ttl_tps: Cache TTL for TPS (seconds)
             cache_ttl_ttft: Cache TTL for TTFT (seconds)
             cache_ttl_quality: Cache TTL for quality (seconds)
+            enable_circuit_breaker: Enable circuit breaker for API calls (default: True)
+            enable_degradation: Enable graceful degradation (default: True)
+            circuit_breaker_failure_threshold: Failure threshold for circuit breaker
+            circuit_breaker_timeout_seconds: Timeout in seconds for circuit breaker
+            cache_ttl_seconds: Default cache TTL for all metrics
         """
+        import os
+
+        # Read from environment variables if not provided explicitly
+        # USE_STRUCTURED_RESPONSES (legacy, maps to enable_degradation)
+        use_structured = os.environ.get("USE_STRUCTURED_RESPONSES")
+        if use_structured is not None and enable_degradation is None:
+            enable_degradation = use_structured.lower() in ("true", "1", "yes")
+
+        # CIRCUIT_BREAKER_ENABLED
+        if enable_circuit_breaker is None:
+            cb_enabled = os.environ.get("CIRCUIT_BREAKER_ENABLED")
+            enable_circuit_breaker = cb_enabled is None or cb_enabled.lower() in (
+                "true",
+                "1",
+                "yes",
+            )
+
+        # CIRCUIT_BREAKER_FAILURE_THRESHOLD
+        if circuit_breaker_failure_threshold is None:
+            cb_threshold = os.environ.get("CIRCUIT_BREAKER_FAILURE_THRESHOLD")
+            if cb_threshold is not None:
+                circuit_breaker_failure_threshold = int(cb_threshold)
+
+        # CIRCUIT_BREAKER_TIMEOUT_SECONDS
+        if circuit_breaker_timeout_seconds is None:
+            cb_timeout = os.environ.get("CIRCUIT_BREAKER_TIMEOUT_SECONDS")
+            if cb_timeout is not None:
+                circuit_breaker_timeout_seconds = int(cb_timeout)
+
+        # CACHE_TTL_SECONDS
+        if cache_ttl_seconds is not None:
+            cache_ttl_utilization = cache_ttl_seconds
+
+        # DEGRADATION_ENABLED
+        if enable_degradation is None:
+            deg_enabled = os.environ.get("DEGRADATION_ENABLED")
+            enable_degradation = deg_enabled is None or deg_enabled.lower() in (
+                "true",
+                "1",
+                "yes",
+            )
+
         self.strategy = strategy
         self.weights = custom_weights or StrategyWeights.from_strategy(strategy)
         self.chutes_api_key = chutes_api_key
@@ -103,12 +161,39 @@ class IntelligentMultiMetricRouting(ChutesRoutingStrategy, CustomRoutingStrategy
         # Initialize API client
         self._api_client = api_client
 
+        # Initialize circuit breaker with optional configuration
+        if enable_circuit_breaker:
+            cb_config = None
+            if (
+                circuit_breaker_failure_threshold is not None
+                or circuit_breaker_timeout_seconds is not None
+            ):
+                from litellm_proxy.routing.circuit_breaker import CircuitBreakerConfig
+
+                cb_config = CircuitBreakerConfig(
+                    failure_threshold=circuit_breaker_failure_threshold or 3,
+                    cooldown_seconds=circuit_breaker_timeout_seconds or 30,
+                )
+            self._circuit_breaker = (
+                CircuitBreaker(cb_config) if enable_circuit_breaker else None
+            )
+        else:
+            self._circuit_breaker = None
+
+        # Initialize response builder
+        self._response_builder = ResponseBuilder()
+
+        # Feature flags for degradation
+        self._enable_degradation = enable_degradation
+
         # Router reference (set via set_router)
         self.router = None
 
         logger.info(
             f"IntelligentMultiMetricRouting initialized with strategy={strategy.value}, "
-            f"weights={self.weights.to_dict()}"
+            f"weights={self.weights.to_dict()}, "
+            f"circuit_breaker={enable_circuit_breaker}, "
+            f"degradation={enable_degradation}"
         )
 
     @property
@@ -126,6 +211,76 @@ class IntelligentMultiMetricRouting(ChutesRoutingStrategy, CustomRoutingStrategy
                 timeout=5,
             )
         return self._api_client
+
+    @property
+    def circuit_breaker_status(self) -> Optional[dict]:
+        """Get circuit breaker status for debugging."""
+        if self._circuit_breaker:
+            return self._circuit_breaker.get_status()
+        return None
+
+    @property
+    def is_circuit_breaker_open(self) -> bool:
+        """Check if circuit breaker is open."""
+        if self._circuit_breaker:
+            return self._circuit_breaker.is_open()
+        return False
+
+    def get_health_status(self) -> dict:
+        """
+        Get health status of the routing subsystem.
+
+        Returns:
+            Dict with health information including:
+            - status: "healthy", "degraded", or "unhealthy"
+            - circuit_breaker_state: Current state
+            - last_successful_request: Timestamp
+            - consecutive_failures: Current failure count
+            - degradation_level: Current system degradation
+        """
+        status = "healthy"
+        degradation_level = 0
+
+        if self._circuit_breaker:
+            cb_status = self._circuit_breaker.get_status()
+            cb_state = cb_status.get("state", "unknown")
+
+            if cb_state == "open":
+                status = "unhealthy"
+                degradation_level = 4
+            elif cb_state == "half_open":
+                status = "degraded"
+                degradation_level = 3
+            elif cb_status.get("failure_count", 0) > 0:
+                status = "degraded"
+                degradation_level = 1
+
+        # Check cache health
+        if not self.cache.is_warm():
+            if status == "healthy":
+                status = "degraded"
+            degradation_level = max(degradation_level, 1)
+
+        return {
+            "status": status,
+            "circuit_breaker_state": (
+                self._circuit_breaker.get_status().get("state", "disabled")
+                if self._circuit_breaker
+                else "disabled"
+            ),
+            "last_successful_request": (
+                self._circuit_breaker.get_status().get("last_success_time")
+                if self._circuit_breaker
+                else None
+            ),
+            "consecutive_failures": (
+                self._circuit_breaker.get_status().get("failure_count", 0)
+                if self._circuit_breaker
+                else 0
+            ),
+            "degradation_level": degradation_level,
+            "cache_warm": self.cache.is_warm(),
+        }
 
     def set_router(self, router) -> None:
         """Set reference to the Router instance."""
@@ -367,22 +522,34 @@ class IntelligentMultiMetricRouting(ChutesRoutingStrategy, CustomRoutingStrategy
         input: Optional[Union[str, List]] = None,
         specific_deployment: Optional[bool] = False,
         request_kwargs: Optional[Dict] = None,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         """
         Asynchronously get the available deployment based on multi-metric routing.
+
+        Returns deployment dict with routing metadata, or raises exception on failure.
         """
         try:
             model_list = self._get_model_list(request_kwargs)
 
             if not model_list:
                 logger.warning("No model list available for routing")
-                return None
+                raise EmptyModelListError("No model list available for routing")
 
             # Get chute IDs from model list
             chute_map = self._get_chute_ids_from_model_list(model_list)
             chute_ids = list(chute_map.keys())
 
-            # Try to get from cache first
+            # Check circuit breaker before making API calls
+            if self._circuit_breaker and self._circuit_breaker.is_open():
+                logger.warning(
+                    f"Circuit breaker open, using degraded response. "
+                    f"Cooldown remaining: {self._circuit_breaker.get_cooldown_remaining():.1f}s"
+                )
+                return self._degrade_to_fallback(
+                    model_list, chute_ids, DegradationLevel.CACHED
+                )
+
+            # Try to get from cache first (Level 1: Cached)
             cached_metrics = []
             for chute_id in chute_ids:
                 cached = self.cache.get_all(chute_id)
@@ -391,15 +558,24 @@ class IntelligentMultiMetricRouting(ChutesRoutingStrategy, CustomRoutingStrategy
 
             # If we have some cached data, use it
             if cached_metrics:
+                logger.info("Using cached metrics for routing (degradation level 1)")
                 decision = self.select_chute(cached_metrics)
-                return self._find_model_config_by_chute(
+                deployment = self._find_model_config_by_chute(
                     model_list, decision.selected_chute
                 )
+                if deployment:
+                    return self._response_builder.build_success(
+                        deployment, DegradationLevel.CACHED
+                    )
 
-            # Fetch from API
+            # Fetch from API (Level 0: Full metrics)
             try:
                 all_metrics = self.api_client.get_bulk_utilization()
                 llm_stats = self.api_client.get_llm_stats()
+
+                # Record success if circuit breaker is enabled
+                if self._circuit_breaker:
+                    self._circuit_breaker.record_success()
 
                 # Build ChuteMetrics for each chute
                 chute_metrics = []
@@ -417,20 +593,146 @@ class IntelligentMultiMetricRouting(ChutesRoutingStrategy, CustomRoutingStrategy
 
                 if chute_metrics:
                     decision = self.select_chute(chute_metrics)
-                    return self._find_model_config_by_chute(
+                    deployment = self._find_model_config_by_chute(
                         model_list, decision.selected_chute
                     )
+                    if deployment:
+                        return self._response_builder.build_success(
+                            deployment, DegradationLevel.FULL
+                        )
 
             except Exception as e:
                 logger.warning(f"Error fetching metrics from API: {e}")
-                # Fallback to existing ChutesUtilizationRouting behavior
-                return None
+                # Record failure in circuit breaker
+                if self._circuit_breaker:
+                    self._circuit_breaker.record_failure()
 
-            return None
+                # Try degradation (Level 2: Utilization-only)
+                if self._enable_degradation:
+                    return self._degrade_to_utilization(
+                        model_list, chute_map, chute_ids
+                    )
 
+            # If no metrics at all, try degradation (Level 3: Random)
+            if self._enable_degradation:
+                return self._degrade_to_random(model_list, chute_ids)
+
+            # Complete failure - raise exception (Level 4)
+            raise DegradationExhaustedError(
+                levels_attempted=["full", "cached", "utilization", "random"],
+                original_error=None,
+            )
+
+        except DegradationExhaustedError:
+            raise
+        except EmptyModelListError:
+            raise
         except Exception as e:
             logger.error(f"Error in async_get_available_deployment: {e}")
-            return None
+            raise DegradationExhaustedError(levels_attempted=["full"], original_error=e)
+
+    def _degrade_to_fallback(
+        self,
+        model_list: List[Dict[str, Any]],
+        chute_ids: List[str],
+        level: int,
+    ) -> Dict[str, Any]:
+        """Return degraded response when circuit breaker is open."""
+        # Try cached metrics first
+        cached_metrics = []
+        for chute_id in chute_ids:
+            cached = self.cache.get_all(chute_id)
+            if cached:
+                cached_metrics.append(cached)
+
+        if cached_metrics:
+            logger.info("Using cached metrics for degraded response")
+            decision = self.select_chute(cached_metrics)
+            deployment = self._find_model_config_by_chute(
+                model_list, decision.selected_chute
+            )
+            if deployment:
+                return self._response_builder.build_success(deployment, level)
+
+        # Fall back to random selection
+        return self._degrade_to_random(model_list, chute_ids)
+
+    def _degrade_to_utilization(
+        self,
+        model_list: List[Dict[str, Any]],
+        chute_map: Dict[str, Any],
+        chute_ids: List[str],
+    ) -> Dict[str, Any]:
+        """Try utilization-only routing as degradation level 2."""
+        logger.warning("Attempting utilization-only routing (degradation level 2)")
+
+        try:
+            # Try to get just utilization data
+            utilization_data = {}
+            for chute_id in chute_ids:
+                try:
+                    util = self.api_client.get_utilization(chute_id)
+                    if util is not None:
+                        utilization_data[chute_id] = util
+                except Exception as e:
+                    logger.debug(f"Failed to get utilization for {chute_id}: {e}")
+
+            if utilization_data:
+                # Build metrics with just utilization
+                chute_metrics = []
+                for chute_id in chute_ids:
+                    metrics = ChuteMetrics(
+                        chute_id=chute_id,
+                        model=chute_map.get(chute_id, {}).get("model", ""),
+                        utilization=utilization_data.get(chute_id),
+                        tps=None,
+                        ttft=None,
+                    )
+                    chute_metrics.append(metrics)
+
+                # Use fallback selection
+                decision = self._fallback_to_utilization(chute_metrics)
+                deployment = self._find_model_config_by_chute(
+                    model_list, decision.selected_chute
+                )
+                if deployment:
+                    return self._response_builder.build_success(
+                        deployment, DegradationLevel.UTILIZATION
+                    )
+
+        except Exception as e:
+            logger.warning(f"Utilization-only routing failed: {e}")
+
+        # Fall through to random selection
+        return self._degrade_to_random(model_list, chute_ids)
+
+    def _degrade_to_random(
+        self,
+        model_list: List[Dict[str, Any]],
+        chute_ids: List[str],
+    ) -> Dict[str, Any]:
+        """Random selection as last resort (degradation level 3)."""
+        if not chute_ids:
+            raise DegradationExhaustedError(
+                levels_attempted=["full", "cached", "utilization", "random"],
+                original_error=None,
+            )
+
+        logger.error(
+            f"No metrics available, performing random selection from {len(chute_ids)} chutes"
+        )
+        selected_chute = random.choice(chute_ids)
+        deployment = self._find_model_config_by_chute(model_list, selected_chute)
+
+        if deployment:
+            return self._response_builder.build_success(
+                deployment, DegradationLevel.RANDOM
+            )
+
+        raise DegradationExhaustedError(
+            levels_attempted=["full", "cached", "utilization", "random"],
+            original_error=None,
+        )
 
     def get_available_deployment(  # type: ignore[override]
         self,
@@ -439,21 +741,33 @@ class IntelligentMultiMetricRouting(ChutesRoutingStrategy, CustomRoutingStrategy
         input: Optional[Union[str, List]] = None,
         specific_deployment: Optional[bool] = False,
         request_kwargs: Optional[Dict] = None,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         """
         Synchronously get the available deployment based on multi-metric routing.
+
+        Returns deployment dict with routing metadata, or raises exception on failure.
         """
         try:
             model_list = self._get_model_list(request_kwargs)
 
             if not model_list:
                 logger.warning("No model list available for routing")
-                return None
+                raise EmptyModelListError("No model list available for routing")
 
             chute_map = self._get_chute_ids_from_model_list(model_list)
             chute_ids = list(chute_map.keys())
 
-            # Try to get from cache first
+            # Check circuit breaker before making API calls
+            if self._circuit_breaker and self._circuit_breaker.is_open():
+                logger.warning(
+                    f"Circuit breaker open, using degraded response. "
+                    f"Cooldown remaining: {self._circuit_breaker.get_cooldown_remaining():.1f}s"
+                )
+                return self._degrade_to_fallback(
+                    model_list, chute_ids, DegradationLevel.CACHED
+                )
+
+            # Try to get from cache first (Level 1: Cached)
             cached_metrics = []
             for chute_id in chute_ids:
                 cached = self.cache.get_all(chute_id)
@@ -461,15 +775,24 @@ class IntelligentMultiMetricRouting(ChutesRoutingStrategy, CustomRoutingStrategy
                     cached_metrics.append(cached)
 
             if cached_metrics:
+                logger.info("Using cached metrics for routing (degradation level 1)")
                 decision = self.select_chute(cached_metrics)
-                return self._find_model_config_by_chute(
+                deployment = self._find_model_config_by_chute(
                     model_list, decision.selected_chute
                 )
+                if deployment:
+                    return self._response_builder.build_success(
+                        deployment, DegradationLevel.CACHED
+                    )
 
-            # Fetch from API
+            # Fetch from API (Level 0: Full metrics)
             try:
                 all_metrics = self.api_client.get_bulk_utilization()
                 llm_stats = self.api_client.get_llm_stats()
+
+                # Record success if circuit breaker is enabled
+                if self._circuit_breaker:
+                    self._circuit_breaker.record_success()
 
                 chute_metrics = []
                 for chute_id in chute_ids:
@@ -485,19 +808,43 @@ class IntelligentMultiMetricRouting(ChutesRoutingStrategy, CustomRoutingStrategy
 
                 if chute_metrics:
                     decision = self.select_chute(chute_metrics)
-                    return self._find_model_config_by_chute(
+                    deployment = self._find_model_config_by_chute(
                         model_list, decision.selected_chute
                     )
+                    if deployment:
+                        return self._response_builder.build_success(
+                            deployment, DegradationLevel.FULL
+                        )
 
             except Exception as e:
                 logger.warning(f"Error fetching metrics from API: {e}")
-                return None
+                # Record failure in circuit breaker
+                if self._circuit_breaker:
+                    self._circuit_breaker.record_failure()
 
-            return None
+                # Try degradation (Level 2: Utilization-only)
+                if self._enable_degradation:
+                    return self._degrade_to_utilization(
+                        model_list, chute_map, chute_ids
+                    )
 
+            # If no metrics at all, try degradation (Level 3: Random)
+            if self._enable_degradation:
+                return self._degrade_to_random(model_list, chute_ids)
+
+            # Complete failure - raise exception (Level 4)
+            raise DegradationExhaustedError(
+                levels_attempted=["full", "cached", "utilization", "random"],
+                original_error=None,
+            )
+
+        except DegradationExhaustedError:
+            raise
+        except EmptyModelListError:
+            raise
         except Exception as e:
             logger.error(f"Error in get_available_deployment: {e}")
-            return None
+            raise DegradationExhaustedError(levels_attempted=["full"], original_error=e)
 
     def _find_model_config_by_chute(
         self, model_list: List[Dict[str, Any]], chute_id: str
@@ -512,7 +859,3 @@ class IntelligentMultiMetricRouting(ChutesRoutingStrategy, CustomRoutingStrategy
 
         # Fallback to first matching model
         return model_list[0] if model_list else None
-
-
-# Type alias for union
-from typing import Union
