@@ -23,6 +23,8 @@ from litellm_proxy.exceptions import (
     ChutesAPIError,
     ChutesAPIConnectionError,
     ChutesAPITimeoutError,
+    DegradationExhaustedError,
+    CircuitBreakerOpenError,
 )
 
 __version__ = "0.1.0"
@@ -42,4 +44,6 @@ __all__ = [
     "ChutesAPIError",
     "ChutesAPIConnectionError",
     "ChutesAPITimeoutError",
+    "DegradationExhaustedError",
+    "CircuitBreakerOpenError",
 ]

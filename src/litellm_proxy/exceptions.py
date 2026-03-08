@@ -1,9 +1,4 @@
-"""
-Custom exceptions for LiteLLM Proxy.
-
-This module defines the exception hierarchy used throughout the
-litellm_proxy package for error handling.
-"""
+from typing import Optional
 
 
 class ChutesRoutingError(Exception):
@@ -50,5 +45,47 @@ class ChutesAPIConnectionError(ChutesAPIError):
 
 class ChutesAPITimeoutError(ChutesAPIError):
     """Raised when Chutes API request times out."""
+
+    pass
+
+
+class DegradationExhaustedError(ChutesRoutingError):
+    """Raised when all degradation levels have failed."""
+
+    def __init__(
+        self,
+        levels_attempted: list,
+        original_error: Optional[Exception] = None,
+    ):
+        self.levels_attempted = levels_attempted
+        self.original_error = original_error
+        super().__init__(
+            f"All degradation levels exhausted: {levels_attempted}. "
+            f"Original error: {original_error}"
+        )
+
+
+class CircuitBreakerOpenError(ChutesRoutingError):
+    """Raised when circuit breaker is open and degraded response not acceptable."""
+
+    def __init__(self, cooldown_remaining: float):
+        self.cooldown_remaining = cooldown_remaining
+        super().__init__(f"Circuit breaker open. Retry after {cooldown_remaining:.1f}s")
+
+
+class MetricsUnavailableError(ChutesRoutingError):
+    """Raised when metrics cannot be fetched from the API."""
+
+    pass
+
+
+class ValidationError(ChutesRoutingError):
+    """Raised when request validation fails."""
+
+    pass
+
+
+class AuthenticationError(ChutesRoutingError):
+    """Raised when authentication fails."""
 
     pass

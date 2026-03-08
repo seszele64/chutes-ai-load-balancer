@@ -142,10 +142,25 @@ Users should monitor for increased latency during primary model outages.
 | Date | Change | Type | Status |
 |------|--------|------|--------|
 | 2026-02-21 | Initial OpenSpec setup | N/A | Archived |
+| 2026-02-24 | intelligent-multi-metric-routing | Feature | Complete (pending archive) |
 
 ### Active Changes
 
-No active changes currently.
+#### intelligent-multi-metric-routing
+- **Status**: Complete (pending archive) - 42/44 tasks completed
+- **Purpose**: Implements intelligent multi-metric routing with support for balanced, speed, latency, quality, and utilization_only strategies
+- **Artifacts**:
+  - `proposal.md` - The "why" and "what" of the change
+  - `design.md` - Technical design and implementation details
+  - `behavior.md` - BDD scenario definitions
+  - `examples.md` - Input-output examples with expected values
+  - `tasks.md` - Implementation checklist (2 remaining benchmark tasks)
+- **Key Features**:
+  - Multi-metric scoring (TPS, TTFT, quality, utilization)
+  - Configurable routing strategies (SPEED, LATENCY, BALANCED, QUALITY, UTILIZATION_ONLY)
+  - Metrics caching with configurable TTLs
+  - Fallback to utilization-only when TPS/TTFT unavailable
+  - Integration with LiteLLM proxy
 
 ### Archived Changes
 

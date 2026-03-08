@@ -274,3 +274,155 @@ class ChutesAPIClient:
         if self._session is not None:
             self._session.close()
             self._session = None
+
+    # ============================================================
+    # Extended methods for Intelligent Multi-Metric Routing
+    # ============================================================
+
+    def get_llm_stats(self, chute_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Fetch LLM statistics including TPS and TTFT.
+
+        Endpoint: GET /invocations/stats/llm
+
+        Args:
+            chute_id: Optional specific chute to filter results
+
+        Returns:
+            Dictionary with TPS and TTFT values for each chute
+
+        Raises:
+            ChutesAPIConnectionError: If API call fails
+            ChutesAPITimeoutError: If request times out
+            ChutesAPIError: If response cannot be parsed
+        """
+        if not self.api_key:
+            logger.warning("No Chutes API key available for LLM stats")
+            return {}
+
+        try:
+            url = f"{self.base_url}/invocations/stats/llm"
+            headers = self._get_headers()
+
+            logger.debug(f"Fetching LLM stats from {url}")
+            response = self.session.get(
+                url,
+                headers=headers,
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+
+            data = response.json()
+            return self._parse_llm_stats(data, chute_id)
+
+        except requests.exceptions.Timeout:
+            logger.error("Timeout fetching LLM stats")
+            raise ChutesAPITimeoutError("Timeout fetching LLM stats")
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Error fetching LLM stats: {e}")
+            raise ChutesAPIConnectionError(f"Error fetching LLM stats: {e}")
+        except (KeyError, ValueError) as e:
+            logger.error(f"Error parsing LLM stats response: {e}")
+            raise ChutesAPIError(f"Error parsing LLM stats response: {e}")
+
+    def _parse_llm_stats(
+        self, data: Any, chute_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Parse LLM stats (TPS/TTFT) from API response.
+
+        Args:
+            data: API response data
+            chute_id: Optional filter
+
+        Returns specific chute to:
+            Dictionary mapping chute_id to {tps, ttft}
+        """
+        result: Dict[str, Any] = {}
+
+        # Handle list response
+        if isinstance(data, list):
+            for item in data:
+                item_chute_id = item.get("chute_id") or item.get("id")
+                if not item_chute_id:
+                    continue
+
+                # Filter by chute_id if specified
+                if chute_id and item_chute_id != chute_id:
+                    continue
+
+                result[item_chute_id] = {
+                    "tps": item.get("average_tps"),
+                    "ttft": item.get("average_ttft"),
+                    "model": item.get("name", ""),
+                    "total_requests": item.get("total_requests"),
+                    "total_input_tokens": item.get("total_input_tokens"),
+                    "total_output_tokens": item.get("total_output_tokens"),
+                }
+
+        # Handle dict response
+        elif isinstance(data, dict):
+            if "data" in data and isinstance(data["data"], list):
+                for item in data["data"]:
+                    item_chute_id = item.get("chute_id") or item.get("id")
+                    if not item_chute_id:
+                        continue
+
+                    if chute_id and item_chute_id != chute_id:
+                        continue
+
+                    result[item_chute_id] = {
+                        "tps": item.get("average_tps"),
+                        "ttft": item.get("average_ttft"),
+                        "model": item.get("name", ""),
+                        "total_requests": item.get("total_requests"),
+                        "total_input_tokens": item.get("total_input_tokens"),
+                        "total_output_tokens": item.get("total_output_tokens"),
+                    }
+
+        return result
+
+    def get_chute_metrics(self, chute_id: str) -> Dict[str, Any]:
+        """
+        Get all metrics for a specific chute.
+
+        This is a convenience method that combines:
+        - Utilization from /chutes/utilization
+        - Total invocations from /chutes/utilization
+        - TPS/TTFT from /invocations/stats/llm
+
+        Args:
+            chute_id: The chute ID to get metrics for
+
+        Returns:
+            Dictionary with all available metrics
+        """
+        metrics: Dict[str, Any] = {
+            "chute_id": chute_id,
+            "utilization": None,
+            "total_invocations": None,
+            "tps": None,
+            "ttft": None,
+        }
+
+        # Get utilization and total_invocations
+        try:
+            utilization_data = self.get_bulk_utilization()
+            if chute_id in utilization_data:
+                metrics["utilization"] = utilization_data[chute_id]
+        except Exception as e:
+            logger.warning(f"Error fetching utilization for {chute_id}: {e}")
+
+        # Get TPS/TTFT
+        try:
+            llm_stats = self.get_llm_stats(chute_id)
+            if chute_id in llm_stats:
+                stats = llm_stats[chute_id]
+                metrics["tps"] = stats.get("tps")
+                metrics["ttft"] = stats.get("ttft")
+                if stats.get("model"):
+                    metrics["model"] = stats["model"]
+        except Exception as e:
+            logger.warning(f"Error fetching LLM stats for {chute_id}: {e}")
+
+        return metrics

@@ -14,7 +14,7 @@ A load balancer system that routes requests between chutes.ai model deployments:
 - **Tertiary Model**: Qwen3.5 397B A17B TEE (Qwen)
 
 **Key Components**:
-- `chutes_routing.py` - Custom LiteLLM routing strategy based on real-time utilization
+- `src/litellm_proxy/routing/intelligent.py` - Custom LiteLLM routing strategy using intelligent multi-metric scoring (utilization, latency, quality)
 - `start_litellm.py` - LiteLLM proxy startup script
 - `litellm-config.yaml` - Model configuration
 - `openspec/` - Specification documents and change tracking

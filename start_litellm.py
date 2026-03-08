@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-LiteLLM Proxy Startup Script with Chutes Utilization Routing.
+LiteLLM Proxy Startup Script with Intelligent Multi-Metric Routing.
 
-This script initializes the LiteLLM Router with the custom Chutes utilization
-routing strategy and starts the proxy server.
+This script initializes the LiteLLM Router with intelligent routing strategy
+that considers multiple performance metrics (TPS, TTFT, quality, utilization)
+for optimal request distribution across AI model deployments.
 
 Usage:
     python start_litellm.py
@@ -13,6 +14,11 @@ Environment Variables:
     LITELLM_MASTER_KEY: Master key for LiteLLM proxy (required)
     LITELLM_PORT: Port to run the proxy on (default: 4000)
     LITELLM_CONFIG_PATH: Path to litellm-config.yaml (default: ./litellm-config.yaml)
+    ROUTING_STRATEGY: Routing strategy (balanced, speed, latency, quality, utilization_only)
+    ROUTING_TPS_WEIGHT: Custom TPS weight (0.0-1.0)
+    ROUTING_TTFT_WEIGHT: Custom TTFT weight (0.0-1.0)
+    ROUTING_QUALITY_WEIGHT: Custom quality weight (0.0-1.0)
+    ROUTING_UTILIZATION_WEIGHT: Custom utilization weight (0.0-1.0)
 """
 
 import os
@@ -154,7 +160,7 @@ def create_router(
 
     # Set custom routing strategy
     router.set_custom_routing_strategy(custom_routing_strategy)
-    logger.info("Custom Chutes utilization routing strategy registered")
+    logger.info("Custom routing strategy registered")
 
     return router
 
@@ -199,6 +205,7 @@ def start_proxy_server(
     port: int = 4000,
     host: str = "0.0.0.0",
     litellm_settings: dict = None,  # type: ignore[assignment]
+    custom_routing=None,  # type: ignore[assignment]
 ):
     """
     Start the LiteLLM proxy server.
@@ -209,6 +216,7 @@ def start_proxy_server(
         port: Port to listen on
         host: Host to bind to
         litellm_settings: LiteLLM settings from config
+        custom_routing: Custom routing strategy instance
     """
     import litellm
     from litellm.proxy import proxy_server as ps
@@ -220,6 +228,17 @@ def start_proxy_server(
     # Set router and model_list for the proxy using the global variables
     ps.llm_router = router
     ps.llm_model_list = model_list
+
+    # Mount custom API routes for routing endpoints
+    from litellm_proxy.api.routes import router as api_router, set_routing_instance
+
+    # Set the routing instance for the API routes
+    if custom_routing:
+        set_routing_instance(custom_routing, model_list)
+
+    # Mount the API router at /api/v1
+    ps.app.include_router(api_router, prefix="/api", tags=["routing"])
+    logger.info("Mounted custom routing API routes at /api")
 
     logger.info(f"Starting LiteLLM proxy on {host}:{port}")
     logger.info(f"Registered {len(model_list)} models with proxy")
@@ -239,7 +258,7 @@ def start_proxy_server(
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="Start LiteLLM proxy with Chutes utilization routing"
+        description="Start LiteLLM proxy with intelligent multi-metric routing"
     )
     parser.add_argument(
         "--port",
@@ -264,6 +283,14 @@ def main():
         type=int,
         default=30,
         help="Cache TTL in seconds for utilization data (default: 30)",
+    )
+    parser.add_argument(
+        "--routing-strategy",
+        "-r",
+        default=os.environ.get("ROUTING_STRATEGY", "balanced"),
+        choices=["balanced", "speed", "latency", "quality", "utilization_only"],
+        help="Routing strategy to use (default: balanced). "
+        "Options: balanced (default), speed, latency, quality, utilization_only",
     )
 
     args = parser.parse_args()
@@ -290,14 +317,76 @@ def main():
         logger.warning(f"Config file not found: {config_path}, using defaults")
         model_list = get_default_model_list()
 
-    # Import and create custom routing strategy
-    from litellm_proxy.routing.strategy import ChutesUtilizationRouting
+    # Determine which routing strategy to use based on CLI argument or environment variable
+    routing_strategy = args.routing_strategy
 
-    custom_routing = ChutesUtilizationRouting(
-        chutes_api_key=chutes_api_key,
-        cache_ttl=args.cache_ttl,
+    # Import routing strategies
+    from litellm_proxy.routing.strategy import (
+        ChutesUtilizationRouting,
+        RoutingStrategy,
     )
-    logger.info(f"Created Chutes utilization routing with {args.cache_ttl}s cache TTL")
+    from litellm_proxy.routing.intelligent import IntelligentMultiMetricRouting
+    from litellm_proxy.routing.config import RoutingConfig, load_routing_config
+
+    # Create custom routing strategy based on selected strategy
+    if routing_strategy == "utilization_only":
+        # Use the original utilization-only strategy
+        custom_routing = ChutesUtilizationRouting(
+            chutes_api_key=chutes_api_key,
+            cache_ttl=args.cache_ttl,
+        )
+        logger.info(f"Using ChutesUtilizationRouting (utilization-only mode)")
+    else:
+        # Use intelligent multi-metric routing
+        strategy = RoutingStrategy.from_string(routing_strategy)
+
+        # Load configuration (from env or YAML)
+        routing_config = (
+            load_routing_config(
+                {
+                    "router_settings": litellm_settings.get(
+                        "routing_strategy_multi_metric", {}
+                    )
+                }
+                if litellm_settings.get("routing_strategy_multi_metric")
+                else None
+            )
+            if routing_strategy != "balanced"
+            else None
+        )
+
+        # Get custom weights from config if set
+        custom_weights = None
+        if routing_config and routing_config.custom_weights:
+            custom_weights = routing_config.custom_weights
+            logger.info(f"Using custom weights: {custom_weights.to_dict()}")
+
+        # Get cache TTLs from config if set
+        cache_ttl_utilization = args.cache_ttl
+        cache_ttl_tps = 300
+        cache_ttl_ttft = 300
+        cache_ttl_quality = 300
+
+        if routing_config:
+            cache_ttl_utilization = routing_config.cache_ttls.get(
+                "utilization", args.cache_ttl
+            )
+            cache_ttl_tps = routing_config.cache_ttls.get("tps", 300)
+            cache_ttl_ttft = routing_config.cache_ttls.get("ttft", 300)
+            cache_ttl_quality = routing_config.cache_ttls.get("quality", 300)
+
+        custom_routing = IntelligentMultiMetricRouting(
+            strategy=strategy,
+            custom_weights=custom_weights,
+            chutes_api_key=chutes_api_key,
+            cache_ttl_utilization=cache_ttl_utilization,
+            cache_ttl_tps=cache_ttl_tps,
+            cache_ttl_ttft=cache_ttl_ttft,
+            cache_ttl_quality=cache_ttl_quality,
+        )
+        logger.info(
+            f"Using IntelligentMultiMetricRouting with strategy={routing_strategy}"
+        )
 
     # Create router with custom strategy
     router = create_router(
@@ -319,6 +408,7 @@ def main():
             port=args.port,
             host=args.host,
             litellm_settings=litellm_settings,
+            custom_routing=custom_routing,
         )
     except KeyboardInterrupt:
         logger.info("Shutting down...")
