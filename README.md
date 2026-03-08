@@ -1,3 +1,9 @@
+> ⚠️ **IMPORTANT DISCLAIMER** ⚠️
+> 
+> **The author has stopped using Chutes as of March 2025 due to policy changes.**
+> 
+> This project may not receive further updates. Potential users should carefully evaluate whether Chutes meets their needs before investing time in this load balancer.
+
 # Chutes Load Balancer with LiteLLM
 
 A local proxy that load balances between chutes.ai models with automatic failover.
